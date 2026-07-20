@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: gold_daily_product_metrics
+    description: "Ürün başına GÜNLÜK satış + fiyat özeti (event-date bazlı). Rapor/dashboard buradan okur."
+    columns:
+      - name: date
+        description: "Olay tarihi (satışın/aksiyonun gerçekleştiği gün, snapshot değil)"
+        tests:
+          - not_null
+      - name: product_id
+        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_daily_metrics_unique.sql"
+        tests:
+          - not_null
+
+  - name: gold_agent_performance
+    description: "Agent'ın GÜNLÜK karar kalitesi — kaç indirim, bundle, escalation (event-date bazlı)."
+    columns:
+      - name: date
+        description: "Aksiyonun gerçek olay tarihi"
+        tests:
+          - not_null
+      - name: product_id
+        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_agent_performance_unique.sql"
+        tests:
+          - not_null
+
+  - name: gold_bundle_effectiveness
+    description: "Bundle indirimlerinin (epsilon-greedy) satışa etkisi (event-date bazlı)."
+    columns:
+      - name: date
+        description: "Bundle aksiyonunun gerçek olay tarihi"
+        tests:
+          - not_null
+      - name: product_id
+        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_bundle_effectiveness_unique.sql"
+        tests:
+          - not_null

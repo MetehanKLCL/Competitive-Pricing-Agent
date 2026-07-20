@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heweso — Competitive Pricing Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ── THEME VARIABLES ── */
+:root {
+  --bg-page:    #f0f4f8;
+  --bg-card:    #ffffff;
+  --bg-card-2:  #f8fafc;
+  --bg-card-3:  #f1f5f9;
+  --border:     #e2e8f0;
+  --border-2:   #f1f5f9;
+  --text-1:     #1e293b;
+  --text-2:     #64748b;
+  --text-3:     #94a3b8;
+  --btn-bg:     #f8fafc;
+  --btn-color:  #475569;
+  --tab-bg:     #f8fafc;
+  --tab-hover:  #ffffff;
+  --term-bg:    #1a2035;
+  --term-scroll:#334155;
+  --theme-icon: "🌙";
+}
+[data-theme="dark"] {
+  --bg-page:    #0a0d14;
+  --bg-card:    #0f1420;
+  --bg-card-2:  #131825;
+  --bg-card-3:  #1a2235;
+  --border:     #1e2535;
+  --border-2:   #1a2030;
+  --text-1:     #e2e8f0;
+  --text-2:     #9ca3af;
+  --text-3:     #4b5563;
+  --btn-bg:     #1a2235;
+  --btn-color:  #94a3b8;
+  --tab-bg:     #131825;
+  --tab-hover:  #0f1420;
+  --term-bg:    #0d1117;
+  --term-scroll:#1e2535;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { overflow-x: auto; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-1);
+  height: 100vh; min-width: 1000px;
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: background .2s, color .2s;
+}
+
+/* ── HEADER ── */
+header {
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  padding: 8px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.header-logo { display: flex; align-items: center; gap: 7px; }
+.logo-icon {
+  width: 28px; height: 28px; background: #6366f1; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.header-logo h1 { font-size: 13px; font-weight: 700; color: var(--text-1); }
+.status-pill {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg-card-2); border-radius: 20px; border: 1px solid var(--border);
+  padding: 3px 10px 3px 6px; font-size: 11px; color: var(--text-2);
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+.status-dot.critical { background: #ef4444; animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.header-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+/* ── THEME TOGGLE ── */
+.theme-toggle {
+  width: 28px; height: 28px; border-radius: 7px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; border: 1px solid var(--border);
+  background: var(--bg-card-2); color: var(--text-2);
+  transition: all .15s; padding: 0;
+}
+.theme-toggle:hover { border-color: #6366f1; color: #6366f1; }
+
+/* ── BUTTONS ── */
+button {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: opacity .15s, transform .1s;
+  background: var(--btn-bg); color: var(--btn-color);
+}
+button:hover { opacity: .85; }
+button:active { transform: scale(.97); }
+.btn-sim             { background: #6366f1; color: #fff; border-color: #6366f1; }
+.btn-sim.running     { background: #e0e7ff; color: #4338ca; border-color: #c7d2fe; }
+[data-theme="dark"] .btn-sim.running { background: #1e1b4b; color: #a5b4fc; border-color: #312e81; }
+.btn-crisis          { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+[data-theme="dark"] .btn-crisis { background: #2d1a1a; color: #fca5a5; border-color: #7f1d1d; }
+.btn-stop            { background: var(--btn-bg); color: var(--text-3); border-color: var(--border); cursor: not-allowed; }
+.btn-stop.has-active { background: #fee2e2; color: #dc2626; border-color: #fecaca; cursor: pointer; animation: stopPulse 2s infinite; }
+[data-theme="dark"] .btn-stop.has-active { background: #2d1a1a; color: #fca5a5; border-color: #7f1d1d; }
+@keyframes stopPulse { 0%,100%{opacity:1} 50%{opacity:.75} }
+.btn-trigger         { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+[data-theme="dark"] .btn-trigger { background: #292218; color: #fbbf24; border-color: #854d0e; }
+.btn-market          { background: var(--btn-bg); color: var(--text-3); border-color: var(--border); }
+.btn-market.active   { background: #dcfce7; color: #166534; border-color: #86efac; animation: mktPulse 2s infinite; }
+[data-theme="dark"] .btn-market.active { background: #14532d; color: #86efac; border-color: #22c55e; }
+@keyframes mktPulse  { 0%,100%{opacity:1} 50%{opacity:.7} }
+
+/* ── PRODUCT TABS ── */
+.product-tabs {
+  display: flex; gap: 5px; padding: 7px 16px 0;
+  background: var(--bg-page); flex-shrink: 0;
+}
+.prod-tab {
+  display: flex; align-items: center; gap: 7px; padding: 6px 14px;
+  border-radius: 8px 8px 0 0; border: 1px solid var(--border); border-bottom: none;
+  cursor: pointer; font-size: 12px; font-weight: 600;
+  color: var(--text-3); background: var(--tab-bg);
+  transition: all .15s; user-select: none;
+}
+.prod-tab:hover { color: var(--text-2); background: var(--tab-hover); }
+.prod-tab.active { color: var(--text-1); background: var(--bg-card); border-color: #6366f1; }
+.tab-price {
+  font-size: 10px; font-weight: 700; color: #6366f1;
+  background: #eef2ff; padding: 1px 6px; border-radius: 8px;
+}
+[data-theme="dark"] .tab-price { background: #1e1b4b; color: #a5b4fc; }
+.prod-tab.active .tab-price { color: #4338ca; background: #e0e7ff; }
+[data-theme="dark"] .prod-tab.active .tab-price { color: #a5b4fc; background: #312e81; }
+.trend-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+.trend-OK       { background: #dcfce7; color: #166534; }
+.trend-WARNING  { background: #fef3c7; color: #92400e; animation: mktPulse 1.5s infinite; }
+.trend-CRITICAL { background: #fee2e2; color: #dc2626; animation: blink .8s infinite; }
+.trend-SURGE    { background: #e0e7ff; color: #4338ca; }
+.trend-NO_DATA  { background: var(--bg-card-3); color: var(--text-3); }
+
+/* ── ALERTS ── */
+#escalation-alert {
+  background: #fef2f2; border-top: 3px solid #ef4444;
+  flex-shrink: 0; border-bottom: 1px solid #fecaca;
+}
+[data-theme="dark"] #escalation-alert { background: #1a0505; border-bottom-color: #2d0a0a; }
+#trend-alert {
+  background: var(--bg-card); flex-shrink: 0;
+  border-bottom: 1px solid var(--border); overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+
+/* ── STATS ── */
+.stats-row {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; padding: 8px 16px; flex-shrink: 0;
+}
+.stat-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
+}
+.stat-card .label { font-size: 9px; font-weight: 700; color: var(--text-3); letter-spacing: .05em; margin-bottom: 3px; }
+.stat-card .value { font-size: 18px; font-weight: 700; color: var(--text-1); }
+.stat-card .value.critical { color: #dc2626; }
+.stat-card .value.price { color: #6366f1; }
+.stat-card .sub { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+.stat-icon { font-size: 20px; opacity: .5; }
+
+/* ── MAIN GRID ── */
+.main {
+  display: grid; grid-template-columns: 1fr 320px;
+  gap: 8px; padding: 0 16px; flex: 1; overflow: hidden;
+}
+
+/* ── TERMINAL PANEL ── */
+.agent-panel {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px 10px 0 0;
+  display: flex; flex-direction: column; overflow: hidden; height: 100%;
+}
+.agent-header {
+  padding: 9px 14px; border-bottom: 1px solid var(--border-2);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-card); flex-shrink: 0;
+}
+.agent-icon { font-size: 16px; }
+.agent-title { font-size: 12px; font-weight: 700; color: var(--text-1); }
+.agent-sub   { font-size: 9px; color: var(--text-3); margin-top: 1px; }
+.aws-info    { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.aws-badge {
+  display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text-2);
+  background: var(--bg-card-2); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 8px;
+}
+.aws-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: #10b981; }
+.aws-badge .dot.pulse { animation: blink 2s infinite; }
+.agent-status-badge {
+  font-size: 10px; font-weight: 700; color: #6366f1;
+  background: #eef2ff; border: 1px solid #c7d2fe;
+  border-radius: 20px; padding: 3px 10px;
+}
+[data-theme="dark"] .agent-status-badge { background: #1e1b4b; border-color: #312e81; }
+.agent-status-badge.running { background: #fef3c7; color: #92400e; border-color: #fde68a; animation: blink .8s infinite; }
+
+/* ── TERMINAL ── */
+.terminal {
+  flex: 1; overflow-y: auto; padding: 12px 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12.5px; line-height: 1.8; background: var(--term-bg);
+  scrollbar-width: thin; scrollbar-color: var(--term-scroll) transparent;
+}
+.terminal::-webkit-scrollbar { width: 4px; }
+.terminal::-webkit-scrollbar-thumb { background: var(--term-scroll); border-radius: 2px; }
+.empty { color: #4b5a7a; font-size: 11px; padding: 20px 0; }
+.t-line { display: flex; gap: 8px; margin-bottom: 2px; }
+.t-line.t-thinking { color: #4b5a7a; }
+.t-line.t-thinking.hidden { display: none; }
+.t-line.t-turn { color: #334155; }
+.t-line.t-start .t-tag { color: #34d399; }
+.t-line.t-tool_call .t-tag { color: #60a5fa; }
+.t-line.t-tool_result .t-tag { color: #6b7280; }
+.t-line.t-final .t-tag { color: #a78bfa; }
+.t-line.t-error .t-tag { color: #f87171; }
+.t-line.t-done .t-tag { color: #34d399; }
+.t-time { color: #374151; flex-shrink: 0; }
+.t-tag  { font-weight: 700; flex-shrink: 0; min-width: 60px; }
+.t-body { color: #cbd5e1; white-space: pre-wrap; word-break: break-word; }
+
+/* ── TERMINAL TRIGGER BAR ── */
+.terminal-trigger-bar {
+  background: var(--bg-card-2); border-top: 1px solid var(--border);
+  padding: 7px 12px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  font-size: 11px; color: var(--text-3);
+}
+.terminal-trigger-bar select {
+  font-size: 10px; border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px 7px; background: var(--bg-card); color: var(--text-2);
+}
+
+/* ── RIGHT PANEL ── */
+.right-panel {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px 10px 0 0;
+  display: flex; flex-direction: column; overflow: hidden; height: 100%;
+}
+.panel-tabs { display: flex; border-bottom: 1px solid var(--border-2); flex-shrink: 0; }
+.panel-tab {
+  flex: 1; font-size: 10px; font-weight: 600; color: var(--text-3);
+  padding: 9px 4px; text-align: center; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: all .15s;
+}
+.panel-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+.panel-tab-content { display: none; flex: 1; overflow-y: auto; }
+.panel-tab-content.active { display: flex; flex-direction: column; }
+.analytics-content { padding: 10px; gap: 8px; }
+
+/* ── COMPETITOR TABLE ── */
+.comp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.comp-table thead th {
+  font-size: 9px; font-weight: 700; color: var(--text-3); letter-spacing: .05em;
+  padding: 8px 12px; text-align: left; background: var(--bg-card-2);
+  border-bottom: 1px solid var(--border);
+}
+.comp-row td { padding: 8px 12px; border-bottom: 1px solid var(--border-2); }
+.comp-name  { font-size: 11px; color: var(--text-2); }
+.comp-price { font-weight: 700; color: var(--text-1); }
+.our-price td { background: #f0fdf4; }
+[data-theme="dark"] .our-price td { background: #0d2d1a; }
+.our-price .comp-name { font-weight: 700; color: #166534; }
+[data-theme="dark"] .our-price .comp-name { color: #34d399; }
+.tag-match   { font-size: 9px; background: #dcfce7; color: #166534; border-radius: 4px; padding: 2px 6px; }
+[data-theme="dark"] .tag-match  { background: #14532d; color: #86efac; }
+.tag-flash   { font-size: 9px; background: #fef3c7; color: #92400e; border-radius: 4px; padding: 2px 6px; }
+[data-theme="dark"] .tag-flash  { background: #292218; color: #fbbf24; }
+.tag-cheaper { font-size: 9px; background: #fee2e2; color: #dc2626; border-radius: 4px; padding: 2px 6px; }
+[data-theme="dark"] .tag-cheaper { background: #2d1a1a; color: #fca5a5; }
+.tag-normal  { font-size: 9px; background: var(--bg-card-3); color: var(--text-3); border-radius: 4px; padding: 2px 6px; }
+
+@keyframes priceUp   { 0%{background:#fff7ed} 100%{background:transparent} }
+@keyframes priceDown { 0%{background:#f0fdf4} 100%{background:transparent} }
+.price-up   td { animation: priceUp   1s ease; }
+.price-down td { animation: priceDown 1s ease; }
+
+/* ── PRICE CHART ── */
+#tab-history { padding: 12px; }
+#price-history-legend { margin-top: 8px; font-size: 10px; color: var(--text-3); }
+
+/* ── ANALYTICS ── */
+.analytics-card {
+  background: var(--bg-card-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+}
+.ac-label { font-size: 9px; font-weight: 700; color: var(--text-3); letter-spacing: .05em; margin-bottom: 3px; }
+.ac-value { font-size: 20px; font-weight: 700; color: var(--text-1); }
+.ac-sub   { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+#analytics-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#analytics-status  { font-size: 10px; color: var(--text-3); }
+.rev-prod-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 8px; border-radius: 6px; margin-bottom: 4px;
+  border-left: 3px solid #22c55e;
+  background: #f0fdf4;
+}
+[data-theme="dark"] .rev-prod-item { background: #0d2d1a; }
+.rev-prod-name { font-size: 11px; font-weight: 700; color: #166534; }
+[data-theme="dark"] .rev-prod-name { color: #34d399; }
+.rev-prod-meta { font-size: 9px; color: var(--text-3); }
+.rev-prod-amount { font-size: 13px; font-weight: 700; color: #16a34a; }
+[data-theme="dark"] .rev-prod-amount { color: #34d399; }
+
+/* ── LIVE SALES STRIP ── */
+.sales-strip {
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  padding: 7px 16px; flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+}
+.sales-strip-label {
+  font-size: 10px; font-weight: 700; color: var(--text-2); letter-spacing: .05em;
+  white-space: nowrap; display: flex; align-items: center; gap: 5px;
+}
+.sales-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; animation: blink 1.5s infinite; }
+.sales-strip-items {
+  display: flex; gap: 6px; overflow-x: auto; flex: 1;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.sales-strip-items::-webkit-scrollbar { display: none; }
+@keyframes slideInLeft {
+  from { transform: translateX(-24px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+.strip-item {
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+  padding: 5px 12px; white-space: nowrap; flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+}
+[data-theme="dark"] .strip-item { background: #14532d22; border-color: #166534; }
+.strip-item.new-sale { animation: slideInLeft 0.35s cubic-bezier(.22,.68,0,1.2) both; }
+.strip-amount { font-size: 13px; font-weight: 700; color: #15803d; }
+[data-theme="dark"] .strip-amount { color: #34d399; }
+.strip-meta   { font-size: 10px; color: #4ade80; border-left: 1px solid #bbf7d0; padding-left: 8px; }
+[data-theme="dark"] .strip-meta { border-left-color: #166534; }
+.strip-prod   { font-size: 10px; font-weight: 600; color: #166534; }
+[data-theme="dark"] .strip-prod { color: #34d399; }
+.strip-qty    { font-size: 10px; color: #166534; background: #dcfce7; border-radius: 4px; padding: 1px 5px; }
+[data-theme="dark"] .strip-qty  { color: #34d399; background: #14532d; }
+
+/* ── FOOTER ── */
+.footer-bar {
+  background: var(--bg-card-2); border-top: 1px solid var(--border);
+  padding: 5px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.footer-badge { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text-3); }
+.footer-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: #10b981; }
+.footer-badge .dot.pulse { animation: blink 2s infinite; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-logo">
+    <div class="logo-icon">🤖</div>
+    <div>
+      <h1>Heweso Pricing Agent</h1>
+    </div>
+  </div>
+  <div class="status-pill">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting</span>
+  </div>
+  <div class="header-right">
+    <button class="btn-sim" id="btn-sim" onclick="toggleSim()">▶ Start Sales Simulation</button>
+    <button class="btn-crisis" onclick="demoCrisis()">⬇ Drop Sales</button>
+    <button class="btn-stop" id="btn-stop-all" onclick="stopAll()">⏹ Stop All</button>
+    <div style="width:1px;background:#e2e8f0;height:16px"></div>
+    <button class="btn-market" id="btn-market" onclick="toggleMarket()">📈 Market Sim</button>
+    <div style="width:1px;background:var(--border);height:16px"></div>
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
+  </div>
+</header>
+
+<!-- ── PRODUCT TABS ── -->
+<div class="product-tabs" id="product-tabs"></div>
+
+<!-- ── ESCALATION ALERT ── -->
+<div id="escalation-alert" style="display:none;align-items:center;gap:10px;padding:7px 16px;flex-shrink:0">
+  <span style="font-size:13px">🚨</span>
+  <span id="escalation-text" style="font-size:12px;font-weight:700;color:#dc2626"></span>
+  <button onclick="document.getElementById('escalation-alert').style.display='none'"
+          style="margin-left:auto;background:none;border:1px solid #fecaca;color:#dc2626;font-size:10px;padding:2px 8px;border-radius:4px;cursor:pointer">
+    Dismiss
+  </button>
+</div>
+
+<!-- ── TREND ALERT ── -->
+<div id="trend-alert" style="display:none;align-items:center;gap:8px;padding:5px 16px;flex-shrink:0"></div>
+
+<!-- ── STATS ── -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div>
+      <div class="label">TODAY'S REVENUE</div>
+      <div class="value" id="stat-revenue">—</div>
+      <div class="sub" id="stat-orders">loading...</div>
+    </div>
+    <div class="stat-icon">💰</div>
+  </div>
+  <div class="stat-card">
+    <div>
+      <div class="label">CURRENT PRICE</div>
+      <div class="value price" id="stat-price">—</div>
+      <div class="sub" id="stat-product">loading...</div>
+    </div>
+    <div class="stat-icon">🏷</div>
+  </div>
+  <div class="stat-card">
+    <div>
+      <div class="label">SALES HEALTH</div>
+      <div class="value" id="stat-health">—</div>
+      <div class="sub" id="stat-last-sale">—</div>
+    </div>
+    <div class="stat-icon">❤️</div>
+  </div>
+  <div class="stat-card" id="stat-competitor-card">
+    <div>
+      <div class="label">TOP COMPETITOR</div>
+      <div class="value" style="font-size:14px" id="stat-top-comp">—</div>
+      <div class="sub" id="stat-comp-name">loading...</div>
+    </div>
+    <div class="stat-icon">🏪</div>
+  </div>
+</div>
+
+<!-- ── LIVE SALES STRIP ── -->
+<div class="sales-strip">
+  <div class="sales-strip-label"><div class="sales-live-dot"></div>LIVE SALES</div>
+  <div class="sales-strip-items" id="sales-feed"></div>
+</div>
+
+<!-- ── MAIN GRID ── -->
+<div class="main">
+
+  <!-- Terminal -->
+  <div class="agent-panel">
+    <div class="agent-header">
+      <div class="agent-icon">🤖</div>
+      <div>
+        <div class="agent-title">Sales Drop Agent</div>
+        <div class="agent-sub">Amazon Nova Lite &nbsp;•&nbsp; AWS Bedrock &nbsp;•&nbsp; ReAct Loop &nbsp;•&nbsp; 14 Tools</div>
+      </div>
+      <div class="aws-info">
+        <span style="font-size:10px;color:var(--text-3);font-weight:600">Product:</span>
+        <span id="trigger-product-label" style="font-size:10px;color:#6366f1;font-weight:700">Samsung Galaxy S24</span>
+        <span style="color:var(--border)">|</span>
+        <select id="test-hour">
+          <option value="">🕐 Real time</option>
+          <option value="3">🌙 03:00 — Off-peak</option>
+          <option value="9">🌅 09:00 — Morning</option>
+          <option value="12">☀️ 12:00 — Midday</option>
+          <option value="15">🕒 15:00 — Afternoon</option>
+          <option value="20">🌆 20:00 — Peak</option>
+          <option value="22">🌃 22:00 — Peak</option>
+        </select>
+        <button class="btn-trigger" onclick="triggerAgent()">⚡ Run Agent</button>
+        <button onclick="clearTerminal()" style="font-size:10px;padding:4px 8px">🗑 Clear</button>
+        <label class="thinking-toggle">
+          <input type="checkbox" id="show-thinking" checked onchange="toggleThinking(this.checked)">
+          <span>Thinking</span>
+        </label>
+        <div class="agent-status-badge" id="agent-badge">⚡ Idle</div>
+      </div>
+    </div>
+    <div class="terminal" id="terminal">
+      <div class="empty">
+        Agent runs 24/7 on AWS — EventBridge triggers Lambda every minute.<br><br>
+        Click "Run Agent" above to trigger a live demo run.
+      </div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" onclick="switchRightTab('competitors', this)">Competitor Watch</div>
+      <div class="panel-tab" onclick="switchRightTab('history', this)">Price History</div>
+      <div class="panel-tab" onclick="switchRightTab('analytics', this)">Analytics</div>
+    </div>
+    <div class="panel-tab-content active" id="tab-competitors">
+      <div id="competitor-panel"><div class="empty" style="padding:20px 12px;color:#94a3b8">Loading...</div></div>
+    </div>
+    <div class="panel-tab-content" id="tab-history" style="padding:12px">
+      <canvas id="price-chart" height="200"></canvas>
+      <div id="price-history-legend"></div>
+    </div>
+    <div class="panel-tab-content analytics-content" id="tab-analytics">
+      <div id="analytics-metrics"></div>
+      <div class="ac-label" style="padding:4px 0 2px">AGENT REVENUE IMPACT</div>
+      <div id="revenue-impact-panel"></div>
+      <div class="ac-label" style="padding:4px 0 2px">ACTION BREAKDOWN</div>
+      <canvas id="analytics-chart" height="130"></canvas>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="btn-trigger" style="font-size:10px;padding:4px 8px" onclick="loadAnalytics()">↻ Refresh</button>
+        <button style="font-size:10px;padding:4px 8px" onclick="exportToS3()">⬆ Export to S3</button>
+      </div>
+      <div id="analytics-status" style="font-size:10px;color:#94a3b8;margin-top:4px"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── FOOTER ── -->
+<div class="footer-bar">
+  <div class="footer-badge"><div class="dot pulse"></div>EventBridge — triggers every 1 minute</div>
+  <div class="footer-badge"><div class="dot"></div>Lambda: heweso-pricing-agent</div>
+  <span style="margin-left:auto;font-size:9px;color:#94a3b8">
+    🔄 In production: agent triggers automatically when sales stop for 60 min
+  </span>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+
+function fmtMoney(n, currency='$') {
+  return currency + new Intl.NumberFormat('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+}
+function timeAgo(iso) {
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s < 5)  return 'Just now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  return d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+}
+function hhmm(iso) {
+  return new Date(iso).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+}
+function esc(t) {
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+let _products = {};
+let _selectedProduct = 'PROD-001';
+let _trends = {};
+const TREND_ICONS = { OK:'→', WARNING:'↓', CRITICAL:'↓↓', SURGE:'↑↑', NO_DATA:'—' };
+
+async function loadProducts() {
+  const data = await fetch(`${API}/api/products`).then(r=>r.json());
+  data.forEach(p => _products[p.product_id] = p);
+  data.forEach(p => {
+    const badge = document.getElementById(`tab-price-${p.product_id}`);
+    if (badge) badge.textContent = fmtMoney(p.current_price);
+  });
+  if (!document.getElementById(`tab-PROD-001`)) renderProductTabs(data);
+}
+
+async function loadTrends() {
+  const pids = Object.keys(_products);
+  if (!pids.length) return;
+  const results = await Promise.allSettled(
+    pids.map(pid => fetch(`${API}/api/trend/${pid}`).then(r=>r.json()).then(t=>({pid,...t})))
+  );
+  results.forEach(r => {
+    if (r.status === 'fulfilled') {
+      const t = r.value;
+      _trends[t.pid] = t;
+      const badge = document.getElementById(`tab-trend-${t.pid}`);
+      if (badge) {
+        badge.textContent = TREND_ICONS[t.trend] || '—';
+        badge.className   = `trend-badge trend-${t.trend}`;
+        badge.title       = t.message || '';
+      }
+    }
+  });
+  _renderTrendAlert();
+}
+
+function _renderTrendAlert() {
+  const t  = _trends[_selectedProduct];
+  const el = document.getElementById('trend-alert');
+  if (!el || !t || t.trend === 'OK' || t.trend === 'NO_DATA') {
+    if (el) el.style.display = 'none';
+    return;
+  }
+  const colors = { WARNING:'#f59e0b', CRITICAL:'#ef4444', SURGE:'#6366f1' };
+  const color  = colors[t.trend] || '#94a3b8';
+  el.style.display     = 'flex';
+  el.style.borderColor = color;
+  el.innerHTML = `
+    <span style="color:${color};font-weight:700;font-size:11px">
+      ${t.trend === 'SURGE' ? '↑↑' : t.trend === 'CRITICAL' ? '↓↓ CRITICAL' : '↓ WARNING'}
+    </span>
+    <span style="color:#64748b;font-size:11px">&nbsp;${t.message}</span>
+  `;
+}
+
+function renderProductTabs(products) {
+  const container = document.getElementById('product-tabs');
+  container.innerHTML = products.map(p => {
+    const t = _trends[p.product_id];
+    return `
+    <div class="prod-tab ${p.product_id === _selectedProduct ? 'active' : ''}"
+         onclick="selectProduct('${p.product_id}')" id="tab-${p.product_id}">
+      ${p.name}
+      <span class="tab-price" id="tab-price-${p.product_id}">${fmtMoney(p.current_price)}</span>
+      <span class="trend-badge trend-${t?.trend || 'NO_DATA'}"
+            id="tab-trend-${p.product_id}" title="${t?.message || ''}">${TREND_ICONS[t?.trend] || '—'}</span>
+    </div>`;
+  }).join('');
+}
+
+function selectProduct(pid) {
+  _selectedProduct = pid;
+  document.querySelectorAll('.prod-tab').forEach(t => t.classList.remove('active'));
+  const tab = document.getElementById(`tab-${pid}`);
+  if (tab) tab.classList.add('active');
+  const lbl = document.getElementById('trigger-product-label');
+  if (lbl) lbl.textContent = _products[pid]?.name || pid;
+  loadStats();
+  loadCompetitors();
+  _renderTrendAlert();
+  if (document.getElementById('tab-history')?.classList.contains('active')) loadPriceHistory();
+}
+
+async function loadStats() {
+  try {
+    const d = await fetch(`${API}/api/stats?product_id=${_selectedProduct}`).then(r=>r.json());
+    document.getElementById('stat-revenue').textContent = fmtMoney(d.today_revenue);
+    document.getElementById('stat-orders').textContent  = `From ${d.today_orders} orders`;
+    document.getElementById('stat-price').textContent   = fmtMoney(d.current_price);
+    document.getElementById('stat-product').textContent = `${_selectedProduct} • ${d.product_name}`;
+    const healthEl = document.getElementById('stat-health');
+    healthEl.textContent = d.sales_health === 'healthy' ? 'HEALTHY' : 'CRITICAL';
+    healthEl.className = 'value' + (d.sales_health === 'critical' ? ' critical' : '');
+    document.getElementById('stat-last-sale').textContent =
+      d.last_sale ? 'Last sale: ' + timeAgo(d.last_sale) : 'No sales yet';
+    const dot = document.getElementById('status-dot');
+    dot.className = 'status-dot' + (d.sales_health === 'critical' ? ' critical' : '');
+    document.getElementById('status-text').textContent = d.sales_health === 'healthy' ? 'Sales Flowing' : 'Sales Stopped';
+    if (_products[_selectedProduct]) _products[_selectedProduct].current_price = d.current_price;
+    const tabPrice = document.getElementById(`tab-price-${_selectedProduct}`);
+    if (tabPrice) tabPrice.textContent = fmtMoney(d.current_price);
+  } catch(e) {
+    document.getElementById('status-text').textContent = 'Connection lost';
+  }
+}
+
+// ── Live Sales Feed (strip) ──────────────────────────────────────────────────
+const MAX_STRIP = 30;
+let _salesLoaded = false;
+
+function addSaleToFeed(sale, prepend = true, animate = true) {
+  const feed = document.getElementById('sales-feed');
+  const productName = _products[sale.product_id]?.name || sale.product_id;
+  const shortName = productName.split(' ').slice(0,2).join(' ');
+  const total = fmtMoney(sale.price_at_sale * sale.quantity);
+  const ts = new Date(sale.timestamp).getTime();
+
+  const el = document.createElement('div');
+  el.className = (prepend && animate) ? 'strip-item new-sale' : 'strip-item';
+  el.dataset.ts = ts;
+  el.innerHTML = `
+    <div class="strip-amount">${total}</div>
+    <div class="strip-meta">
+      <span class="strip-prod">${esc(shortName)}</span>
+      <span class="strip-qty">${sale.quantity}x</span>
+      <span class="strip-time"></span>
+    </div>`;
+
+  _updateStripTime(el, ts);
+
+  feed.insertBefore(el, feed.firstChild);
+  if (animate) feed.scrollLeft = 0;
+  while (feed.children.length > MAX_STRIP) feed.removeChild(feed.lastChild);
+}
+
+function _updateStripTime(el, ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  let label;
+  if (s < 60)       label = s + 's ago';
+  else if (s < 3600) label = Math.floor(s/60) + 'm ago';
+  else               label = Math.floor(s/3600) + 'h ago';
+  const span = el.querySelector('.strip-time');
+  if (span) span.textContent = label;
+}
+
+function _refreshStripTimes() {
+  document.querySelectorAll('#sales-feed .strip-item').forEach(el => {
+    const ts = parseInt(el.dataset.ts);
+    if (ts) _updateStripTime(el, ts);
+  });
+}
+
+async function initSalesFeed() {
+  const data = await fetch(`${API}/api/sales?limit=15`).then(r=>r.json());
+  const feed = document.getElementById('sales-feed');
+  feed.innerHTML = '';
+  // En eskiden en yeniye sırala, her birini prepend et → en yeni solda
+  [...data].reverse().forEach(s => addSaleToFeed(s, true, false));
+  _salesLoaded = true;
+  const evtSource = new EventSource(`${API}/api/sales/stream`);
+  evtSource.onmessage = async (e) => {
+    if (!_salesLoaded) return;
+    const sale = JSON.parse(e.data);
+    if (!_products[sale.product_id]) await loadProducts();
+    addSaleToFeed(sale, true);
+    loadStats();
+  };
+  evtSource.onerror = () => { evtSource.close(); setTimeout(initSalesFeed, 3000); };
+}
+
+// ── Competitor Watch ─────────────────────────────────────────────────────────
+let _allCompetitors = [];
+let _prevCompPrices = {};
+
+async function loadCompetitors() {
+  if (!_allCompetitors.length) {
+    _allCompetitors = await fetch(`${API}/api/competitors`).then(r=>r.json());
+  }
+  const pid = _selectedProduct;
+  const ours = _products[pid];
+  const comps = _allCompetitors.filter(c => c.product_id === pid);
+  const cheapest = comps.length ? Math.min(...comps.map(c => c.price)) : null;
+  const panel = document.getElementById('competitor-panel');
+  if (!comps.length) { panel.innerHTML = '<div class="empty" style="padding:20px 12px;color:#94a3b8">No competitor data</div>'; return; }
+
+  // Update top competitor stat card
+  if (cheapest !== null) {
+    const cheapComp = comps.find(c => c.price === cheapest);
+    document.getElementById('stat-top-comp').textContent = fmtMoney(cheapest);
+    document.getElementById('stat-comp-name').textContent = cheapComp?.competitor || '';
+  }
+
+  let rows = '';
+  if (ours) {
+    const ourPrice = ours.current_price;
+    const statusText = cheapest && ourPrice <= cheapest ? 'Matching cheapest' : 'Above cheapest';
+    const statusTag  = cheapest && ourPrice <= cheapest
+      ? `<span class="tag-match">✓ ${statusText}</span>`
+      : `<span class="tag-flash">↑ ${statusText}</span>`;
+    rows += `<tr class="comp-row our-price">
+      <td class="comp-name">Heweso (Ours)</td>
+      <td class="comp-price">${fmtMoney(ourPrice)}</td>
+      <td class="comp-status">${statusTag}</td></tr>`;
+  }
+  comps.forEach(c => {
+    const ourPrice = ours?.current_price ?? Infinity;
+    const key = `${c.product_id}:${c.competitor}`;
+    const change = _prevCompPrices[key];
+    let priceClass = '';
+    let changeIndicator = '';
+    if (change && typeof change === 'object') {
+      if (change.curr < change.prev) {
+        priceClass = 'price-down';
+        changeIndicator = `<span style="color:#22c55e;font-size:10px"> ▼${fmtMoney(change.prev - change.curr)}</span>`;
+      } else {
+        priceClass = 'price-up';
+        changeIndicator = `<span style="color:#dc2626;font-size:10px"> ▲${fmtMoney(change.curr - change.prev)}</span>`;
+      }
+      _prevCompPrices[key] = change.curr;
+    }
+    let tag = '';
+    if (c.price < ourPrice)
+      tag = c.price === cheapest
+        ? '<span class="tag-cheaper">⚡ Cheapest</span>'
+        : '<span class="tag-cheaper">↓ Cheaper</span>';
+    else
+      tag = '<span class="tag-normal">✓ Normal</span>';
+    rows += `<tr class="comp-row ${priceClass}">
+      <td class="comp-name">${esc(c.competitor)}</td>
+      <td class="comp-price">${fmtMoney(c.price)}${changeIndicator}</td>
+      <td class="comp-status">${tag}</td></tr>`;
+  });
+  panel.innerHTML = `<table class="comp-table">
+    <thead><tr><th>COMPETITOR</th><th>PRICE</th><th>STATUS</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+async function refreshCompetitors() {
+  const fresh = await fetch(`${API}/api/competitors`).then(r=>r.json());
+  fresh.forEach(c => {
+    const key = `${c.product_id}:${c.competitor}`;
+    const old = _prevCompPrices[key];
+    if (old !== undefined && old !== c.price) {
+      _prevCompPrices[key] = { prev: old, curr: c.price };
+    } else if (old === undefined) {
+      _prevCompPrices[key] = c.price;
+    }
+  });
+  _allCompetitors = fresh;
+  loadCompetitors();
+}
+
+// ── Agent Terminal ───────────────────────────────────────────────────────────
+const LABELS = {
+  start: 'STARTED', turn: 'TURN', thinking: 'THINKING',
+  tool_call: 'TOOL', tool_result: 'RESULT', final: 'DECISION',
+  error: 'ERROR', done: 'DONE',
+};
+
+function stripThinkingTags(text) {
+  return text
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<summary>[\s\S]*?<\/summary>/gi, t => t.replace(/<\/?summary>/gi, '').trim())
+    .replace(/<answer>[\s\S]*?<\/answer>/gi, '')
+    .replace(/<response>[\s\S]*?<\/response>/gi, '')
+    .replace(/<\/?(?:thinking|answer|response|summary)>/gi, '')
+    .replace(/^#{1,3}\s+/gm, '')
+    .trim();
+}
+
+function humanReadableToolCall(name, input) {
+  switch (name) {
+    case 'query_sales':              return `📊 Checking sales — Product: ${input.product_id}, Last ${input.minutes || 60} minutes`;
+    case 'get_time_context':         return `🕐 Checking time context — ${input.product_id} (what hour is it for this product?)`;
+    case 'check_bundle_trigger':     return `🔗 Checking bundle opportunity — ${input.product_id}`;
+    case 'check_competitor_pattern': return `🔬 Analyzing competitor pattern — ${input.product_id}`;
+    case 'analyze_price_elasticity': return `📐 Analyzing price elasticity — ${input.product_id}`;
+    case 'decide_price':             return `🧮 Deciding price action — ${input.product_id} | mode: ${input.mode}`;
+    case 'escalate':                 return `🚨 Escalating — Product: ${input.product_id}\n   Reason: ${input.reason}`;
+    case 'check_sales_trend':        return `📈 Checking sales trend — Product: ${input.product_id}, window: ${input.window_minutes || 30}min`;
+    case 'check_outcome':            return `🔎 Checking outcome of last price change — Product: ${input.product_id}`;
+    case 'check_competitors':        return `🔍 Checking competitor prices — Product: ${input.product_id}`;
+    case 'update_price':             return `💰 Updating price — ${input.product_id}: ${fmtMoney(input.new_price)}\n   Reason: ${input.reason}`;
+    case 'log_action':               return `📝 Logging action — ${input.action} | ${input.reason}`;
+    case 'send_email':               return `📧 Sending email — Subject: ${input.subject}`;
+    default:                         return `${name}(${JSON.stringify(input)})`;
+  }
+}
+
+function humanReadableToolResult(name, result) {
+  if (result.error)   return `❌ Error: ${result.error}`;
+  if (result.blocked) return `⛔ ${result.blocked}`;
+  switch (name) {
+    case 'query_sales': {
+      const status = result.status === 'critical' ? '🔴 CRITICAL — No sales!' : '🟢 Healthy';
+      const last = result.last_sale ? `Last sale: ${timeAgo(result.last_sale)}` : 'No recent sales';
+      return `${status} | ${result.sale_count} sales | ${last}\n   Current price: ${fmtMoney(result.current_price)} (Min: ${fmtMoney(result.min_price)})`;
+    }
+    case 'get_time_context': {
+      const levelIcons = { high:'📈', medium:'▶', low:'📉', campaign:'🎯', unknown:'❓' };
+      const icon = levelIcons[result.traffic_level] || '🕐';
+      const ratio = result.traffic_ratio != null ? ` | traffic ${result.traffic_ratio}x avg` : '';
+      return `${icon} Traffic: ${result.traffic_level}${ratio} | ${result.local_time}\n   ${result.context}`;
+    }
+    case 'check_bundle_trigger': {
+      if (!result.is_accessory) return `➖ Not an accessory — no bundle parent.`;
+      const bIcon = result.bundle_opportunity ? '🔗' : '➖';
+      return `${bIcon} Bundle: ${result.bundle_opportunity ? 'OPPORTUNITY' : 'no signal'} | ${result.parent_name} → ${result.parent_sales_30min} sales (30min) | ${result.recommendation.substring(0, 80)}...`;
+    }
+    case 'check_competitor_pattern': {
+      const patternIcons = { FLASH_SALE:'⚡', MONITOR:'👁', STRUCTURAL:'📌', NOT_UNDERCUT:'✅' };
+      return `${patternIcons[result.pattern] || '❓'} Pattern: ${result.pattern} | ${result.recommendation}`;
+    }
+    case 'analyze_price_elasticity': {
+      if (!result.success) return `ℹ️ ${result.recommendation}`;
+      const confIcons = { high: '🟢', medium: '🟡', low: '🔴', none: '⚫' };
+      const confIcon = confIcons[result.confidence] || '❓';
+      const optimal = result.optimal_drop_pct
+        ? `Optimal drop: ${Math.abs(result.optimal_drop_pct).toFixed(1)}%`
+        : 'No reliable drop found';
+      return `📐 ${optimal} | ${confIcon} Confidence: ${result.confidence} | ${result.confidence_note}`;
+    }
+    case 'decide_price': {
+      const icon = result.action === 'UPDATE' ? '✅' : '⛔';
+      return `${icon} Decision: ${result.action} | ${result.reason}`;
+    }
+    case 'escalate':
+      return result.success
+        ? `🚨 Escalation sent — Log ID: ${result.log_id} | Email: ${result.message_id?.substring(0,20)}...`
+        : `❌ Escalation failed: ${result.message}`;
+    case 'check_sales_trend': {
+      const trendIcons = { OK:'🟢', WARNING:'🟡', CRITICAL:'🔴', SURGE:'🟣', NO_DATA:'⚪' };
+      const icon = trendIcons[result.trend] || '❓';
+      return `${icon} Trend: ${result.trend} | ${result.message}`;
+    }
+    case 'check_outcome': {
+      const icons = { SUCCESS:'✅', FAILED:'❌', PENDING:'⏳', NO_RECENT_CHANGE:'ℹ️' };
+      const icon = icons[result.outcome] || '❓';
+      if (result.outcome === 'NO_RECENT_CHANGE') return `ℹ️ No recent price change found.`;
+      return `${icon} Outcome: ${result.outcome}\n   ${result.outcome_detail}`;
+    }
+    case 'check_competitors': {
+      if (!Array.isArray(result) || !result.length) return 'No competitor data found.';
+      return result.map(c => `  • ${c.competitor}: ${fmtMoney(c.price)}`).join('\n');
+    }
+    case 'update_price': {
+      if (result.success) return `✅ Price updated: ${fmtMoney(result.old_price)} → ${fmtMoney(result.new_price)}`;
+      return `⚠️ Update failed: ${result.reason || result.error || 'Unknown reason'}`;
+    }
+    case 'log_action':  return `✅ Logged — ID: ${result.log_id}`;
+    case 'send_email':  return result.success ? `✅ Email sent — Message ID: ${result.message_id}` : `❌ Email failed`;
+    default:            return JSON.stringify(result, null, 2);
+  }
+}
+
+function appendTerminalLine(event) {
+  const terminal = document.getElementById('terminal');
+  const empty = terminal.querySelector('.empty');
+  if (empty) empty.remove();
+  const now = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
+  const type = event.type || 'unknown';
+  const label = LABELS[type] || type.toLocaleUpperCase('en-US');
+  if (type === 'turn') {
+    const sep = document.createElement('div');
+    sep.className = 't-line t-turn';
+    sep.innerHTML = `<span class="t-time">[${now}]</span><span class="t-tag">${label} ${event.turn}</span><span class="t-body">──────────────────────────────────</span>`;
+    terminal.appendChild(sep);
+    terminal.scrollTop = terminal.scrollHeight;
+    return;
+  }
+  let body = '';
+  if (type === 'start')        body = `Agent started — Product: ${event.product_id} | Reason: ${event.reason}`;
+  else if (type === 'thinking') { body = stripThinkingTags(event.text); if (!body) return; }
+  else if (type === 'tool_call')   body = humanReadableToolCall(event.name, event.input);
+  else if (type === 'tool_result') body = humanReadableToolResult(event.name, event.result);
+  else if (type === 'final')       body = stripThinkingTags(event.text);
+  else if (type === 'error')       body = event.text;
+  else if (type === 'done')        body = '— Agent task completed —';
+
+  const line = document.createElement('div');
+  line.className = `t-line t-${type}`;
+  line.innerHTML = `<span class="t-time">[${now}]</span><span class="t-tag">${label}</span><span class="t-body">${esc(body)}</span>`;
+  terminal.appendChild(line);
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '<div class="empty">Terminal cleared.</div>';
+}
+function toggleThinking(show) {
+  document.querySelectorAll('.t-thinking').forEach(el => el.classList.toggle('hidden', !show));
+}
+async function triggerAgent() {
+  document.getElementById('terminal').innerHTML = '';
+  const testHour = document.getElementById('test-hour').value;
+  await _runAgentToTerminal(_selectedProduct, testHour ? parseInt(testHour) : null);
+}
+
+// ── Demo controls ─────────────────────────────────────────────────────────────
+let _simRunning = false;
+let _marketRunning = false;
+let _agentRunning = false;
+
+function updateButtonStates() {
+  const anyActive = _simRunning || _marketRunning;
+  const btnSim = document.getElementById('btn-sim');
+  if (_simRunning) { btnSim.textContent = '⏸ Simulation Running'; btnSim.className = 'btn-sim running'; }
+  else             { btnSim.textContent = '▶ Start Sales Simulation'; btnSim.className = 'btn-sim'; }
+  const btnMkt = document.getElementById('btn-market');
+  if (_marketRunning) { btnMkt.textContent = '📉 Market Active'; btnMkt.className = 'btn-market active'; }
+  else                { btnMkt.textContent = '📈 Market Sim';    btnMkt.className = 'btn-market'; }
+  const btnStop = document.getElementById('btn-stop-all');
+  btnStop.className = anyActive ? 'btn-stop has-active' : 'btn-stop';
+  const badge = document.getElementById('agent-badge');
+  if (_agentRunning) { badge.textContent = 'Running...'; badge.className = 'agent-status-badge running'; }
+  else               { badge.textContent = '⚡ Idle';    badge.className = 'agent-status-badge'; }
+}
+
+let _autoWatchTimer = null;
+let _lastCrisisRun = 0;
+let _lastRecoveryRun = 0;
+let _prevHealthStatus = null;
+const CRISIS_COOLDOWN   = 90_000;
+const RECOVERY_COOLDOWN = 120_000;
+const BUNDLE_COOLDOWN   = 120_000;
+
+// Telefon → aksesuar ilişkisi
+const PHONE_TO_ACCESSORY = { 'PROD-001': 'PROD-002', 'PROD-003': 'PROD-004' };
+const _lastBundleRun = {};
+
+function startAutoWatch() { if (_autoWatchTimer) return; _autoWatchTimer = setInterval(_autoWatchTick, 30_000); }
+function stopAutoWatch()  { if (_autoWatchTimer) { clearInterval(_autoWatchTimer); _autoWatchTimer = null; } }
+
+async function _autoWatchTick() {
+  if (_agentRunning) return;
+  if (!_simRunning && !_marketRunning) return;
+  try {
+    const d = await fetch(`${API}/api/stats?product_id=PROD-001`).then(r=>r.json());
+    const now = Date.now();
+    const currentStatus = d.sales_health;
+
+    if (currentStatus === 'critical') {
+      if (now - _lastCrisisRun < CRISIS_COOLDOWN) { _prevHealthStatus = currentStatus; return; }
+      _lastCrisisRun = now;
+      _prevHealthStatus = currentStatus;
+      const pids = Object.keys(_products).sort();
+      for (const pid of pids) { await _runAgentToTerminal(pid); if (!_simRunning && !_marketRunning) break; }
+      return;
+    }
+
+    if (currentStatus === 'healthy') {
+      const justRecovered = _prevHealthStatus === 'critical';
+      const cooldownPassed = now - _lastRecoveryRun > RECOVERY_COOLDOWN;
+      if (justRecovered || cooldownPassed) {
+        if (now - _lastRecoveryRun < RECOVERY_COOLDOWN && !justRecovered) { _prevHealthStatus = currentStatus; return; }
+        _lastRecoveryRun = now;
+        _prevHealthStatus = currentStatus;
+        const pids = Object.keys(_products).sort();
+        for (const pid of pids) { await _runAgentToTerminal(pid); if (!_simRunning && !_marketRunning) break; }
+        return;
+      }
+
+      // Bundle check: telefon SURGE'de mi? Öyleyse aksesuar agentını tetikle
+      for (const phonePid of Object.keys(PHONE_TO_ACCESSORY)) {
+        const cooldownKey = phonePid;
+        if (now - (_lastBundleRun[cooldownKey] || 0) < BUNDLE_COOLDOWN) continue;
+        const trend = await fetch(`${API}/api/trend/${phonePid}`).then(r=>r.json());
+        if (trend.trend === 'SURGE') {
+          const accessoryPid = PHONE_TO_ACCESSORY[phonePid];
+          _lastBundleRun[cooldownKey] = now;
+          await _runAgentToTerminal(accessoryPid, null, `Bundle opportunity — ${_products[phonePid]?.name || phonePid} is surging`);
+          if (_agentRunning) break;
+        }
+      }
+    }
+
+    _prevHealthStatus = currentStatus;
+  } catch(e) {}
+}
+
+async function toggleSim() {
+  if (_simRunning) { await fetch(`${API}/api/demo/simulate/stop`, {method:'POST'}); _simRunning = false; if (!_marketRunning) stopAutoWatch(); }
+  else             { await fetch(`${API}/api/demo/simulate/start`, {method:'POST'}); _simRunning = true; startAutoWatch(); }
+  updateButtonStates();
+}
+async function toggleMarket() {
+  if (_marketRunning) { await fetch(`${API}/api/demo/competitors/stop`, {method:'POST'}); _marketRunning = false; if (!_simRunning) stopAutoWatch(); }
+  else                { await fetch(`${API}/api/demo/competitors/start`, {method:'POST'}); _marketRunning = true; startAutoWatch(); }
+  updateButtonStates();
+}
+async function stopAll() {
+  if (!_simRunning && !_marketRunning) return;
+  await Promise.all([fetch(`${API}/api/demo/simulate/stop`, {method:'POST'}), fetch(`${API}/api/demo/competitors/stop`, {method:'POST'})]);
+  _simRunning = false; _marketRunning = false; stopAutoWatch(); updateButtonStates();
+}
+async function demoCrisis() {
+  if (_simRunning) { await fetch(`${API}/api/demo/simulate/stop`, {method:'POST'}); _simRunning = false; }
+  await fetch(`${API}/api/demo/crisis`, {method:'POST'});
+  await initSalesFeed(); loadStats(); _lastCrisisRun = Date.now(); updateButtonStates();
+  const pids = Object.keys(_products).sort();
+  for (const pid of pids) await _runAgentToTerminal(pid);
+}
+
+async function _runAgentToTerminal(product_id, test_hour = null, custom_reason = null) {
+  if (_agentRunning) return;
+  _agentRunning = true; updateButtonStates();
+  const terminal = document.getElementById('terminal');
+  if (terminal.querySelector('.empty')) terminal.innerHTML = '';
+  let url = `${API}/api/demo/trigger?product_id=${product_id}`;
+  if (test_hour !== null) url += `&test_hour=${test_hour}`;
+  if (custom_reason !== null) url += `&reason=${encodeURIComponent(custom_reason)}`;
+  try {
+    const r = await fetch(url, {method:'POST'});
+    const { run_id } = await r.json();
+    await new Promise((resolve) => {
+      const src = new EventSource(`${API}/api/agent/stream/${run_id}`);
+      src.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        appendTerminalLine(ev);
+        if (ev.type === 'done') { src.close(); resolve(); }
+      };
+      src.onerror = () => { src.close(); resolve(); };
+    });
+  } finally {
+    _agentRunning = false; updateButtonStates(); refreshCompetitors(); loadProducts();
+  }
+}
+
+function switchRightTab(tab, el) {
+  document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel-tab-content').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  if (tab === 'history')   loadPriceHistory();
+  if (tab === 'analytics') loadAnalytics();
+}
+
+// ── Price History Chart ───────────────────────────────────────────────────────
+let _priceChart = null;
+async function loadPriceHistory() {
+  const pid = _selectedProduct;
+  let data;
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch(`${API}/api/price-history/${pid}`, {signal: ctrl.signal});
+    clearTimeout(timeout);
+    data = await resp.json();
+  } catch(e) {
+    document.getElementById('price-history-legend').textContent = 'Could not load price history.';
+    return;
+  }
+  const timeline = data.timeline;
+  if (!timeline || timeline.length === 0) {
+    document.getElementById('price-history-legend').textContent = 'No price changes recorded yet.';
+    return;
+  }
+  const labels = timeline.map(p => new Date(p.timestamp).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}));
+  const prices = timeline.map(p => p.price);
+  const pointColors = timeline.map(p => p.event === 'down' ? '#ef4444' : p.event === 'up' ? '#22c55e' : '#6366f1');
+  const pointRadius = timeline.map(p => p.event === 'start' ? 4 : 6);
+  const ctx = document.getElementById('price-chart').getContext('2d');
+  if (_priceChart) _priceChart.destroy();
+  _priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: _products[pid]?.name || pid,
+        data: prices,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.07)',
+        borderWidth: 2, tension: 0.1, fill: true,
+        pointBackgroundColor: pointColors, pointRadius, pointHoverRadius: 8,
+      }, {
+        label: 'Base Price',
+        data: Array(labels.length).fill(data.base_price),
+        borderColor: '#cbd5e1', borderDash: [4,4], borderWidth: 1,
+        pointRadius: 0, fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      animation: {duration: 400},
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: {size: 10} } },
+        tooltip: {
+          callbacks: {
+            label: ctx => fmtMoney(ctx.raw),
+            afterLabel: (ctx) => { const pt = timeline[ctx.dataIndex]; return pt?.reason ? `Reason: ${pt.reason.substring(0, 60)}` : ''; },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: {color: '#94a3b8', font: {size: 9}, maxRotation: 45}, grid: {color: '#f1f5f9'} },
+        y: { ticks: {color: '#94a3b8', font: {size: 9}, callback: v => fmtMoney(v)}, grid: {color: '#f1f5f9'} },
+      },
+    },
+  });
+  const drops = timeline.filter(p => p.event === 'down').length;
+  const raises = timeline.filter(p => p.event === 'up').length;
+  document.getElementById('price-history-legend').innerHTML =
+    `<span style="color:#ef4444">● ${drops} drop${drops!==1?'s':''}</span> &nbsp;` +
+    `<span style="color:#22c55e">● ${raises} raise${raises!==1?'s':''}</span> &nbsp;` +
+    `<span style="color:#94a3b8">Current: ${fmtMoney(data.current_price)} / Base: ${fmtMoney(data.base_price)}</span>`;
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+let _analyticsChart = null;
+async function loadAnalytics() {
+  document.getElementById('analytics-status').textContent = 'Loading from Athena...';
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    const data = await fetch(`${API}/api/analytics/summary`, {signal: ctrl.signal}).then(r=>r.json());
+    clearTimeout(t);
+    const statRow    = data.crisis_count?.rows?.[0] || [];
+    const priceUpd   = statRow[0] || '0';
+    const emailsSent = statRow[1] || '0';
+    const totalActs  = statRow[2] || '0';
+    const revenueRows = data.revenue_today?.rows || [];
+    const totalRev    = revenueRows.reduce((s,r) => s + (parseFloat(r[2]) || 0), 0);
+    const totalOrders = revenueRows.reduce((s,r) => s + (parseInt(r[1]) || 0), 0);
+    document.getElementById('analytics-metrics').innerHTML = `
+      <div class="analytics-card"><div class="ac-label">Price Updates</div><div class="ac-value" style="color:#6366f1">${priceUpd}</div><div class="ac-sub">agent interventions</div></div>
+      <div class="analytics-card"><div class="ac-label">Emails Sent</div><div class="ac-value" style="color:#f59e0b">${emailsSent}</div><div class="ac-sub">of ${totalActs} total actions</div></div>
+      <div class="analytics-card"><div class="ac-label">Today's Revenue</div><div class="ac-value" style="color:#10b981">${fmtMoney(totalRev)}</div><div class="ac-sub">${totalOrders} orders</div></div>
+      <div class="analytics-card"><div class="ac-label">Intervention Rate</div><div class="ac-value" style="color:#a78bfa">${totalActs > 0 ? Math.round(priceUpd/totalActs*100) : 0}%</div><div class="ac-sub">price updates / all actions</div></div>`;
+    const actionRows = (data.actions?.rows || []).slice(0, 6);
+    const labels = actionRows.map(r=>r[0]);
+    const counts = actionRows.map(r=>parseInt(r[1]));
+    const colors = ['#e2e8f0','#6366f1','#ef4444','#f59e0b','#10b981','#8b5cf6'];
+    const ctx = document.getElementById('analytics-chart').getContext('2d');
+    if (_analyticsChart) _analyticsChart.destroy();
+    _analyticsChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: counts, backgroundColor: colors, borderColor: '#fff', borderWidth: 2 }] },
+      options: { responsive: true, plugins: { legend: { labels: { color: '#64748b', font: {size: 10}, boxWidth: 12 } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}` } } } },
+    });
+    try {
+      const ctrl2 = new AbortController();
+      const t2 = setTimeout(() => ctrl2.abort(), 8000);
+      const impact = await fetch(`${API}/api/analytics/revenue-impact`, {signal: ctrl2.signal}).then(r=>r.json());
+      clearTimeout(t2);
+      const s = impact.summary;
+      const byProd = impact.by_product || [];
+      document.getElementById('revenue-impact-panel').innerHTML = `
+        <div class="analytics-card" style="border-color:#22c55e;margin-bottom:6px">
+          <div class="ac-label">Total Agent-Enabled Revenue</div>
+          <div class="ac-value" style="color:#16a34a;font-size:18px">${fmtMoney(s.total_agent_revenue)}</div>
+          <div class="ac-sub">${s.total_orders_enabled} orders across ${s.total_price_drops} price drops</div>
+        </div>
+        ${byProd.map(p=>`
+          <div class="rev-prod-item">
+            <div>
+              <div class="rev-prod-name">${p.product_name}</div>
+              <div class="rev-prod-meta">${p.price_drops} drops · ${p.agent_enabled_orders} orders</div>
+            </div>
+            <div class="rev-prod-amount">${fmtMoney(p.agent_enabled_revenue)}</div>
+          </div>`).join('')}`;
+    } catch(e) {
+      document.getElementById('revenue-impact-panel').innerHTML = `<div style="color:#94a3b8;font-size:10px;padding:8px 0">Could not load revenue impact</div>`;
+    }
+    document.getElementById('analytics-status').textContent =
+      `Last updated: ${new Date().toLocaleTimeString('en-US', {hour12:false})} · Source: DynamoDB + Athena`;
+  } catch(e) {
+    document.getElementById('analytics-status').textContent = 'Failed to load: ' + e.message;
+  }
+}
+
+async function exportToS3() {
+  document.getElementById('analytics-status').textContent = 'Exporting DynamoDB → S3...';
+  try {
+    const r = await fetch(`${API}/api/analytics/export`, {method:'POST'}).then(r=>r.json());
+    document.getElementById('analytics-status').textContent = `✅ Exported ${r.rows_exported} rows to S3 — run Refresh to update charts`;
+  } catch(e) {
+    document.getElementById('analytics-status').textContent = 'Export failed: ' + e.message;
+  }
+}
+
+// ── Escalation polling ────────────────────────────────────────────────────────
+let _lastEscalationTs = '';
+async function checkEscalations() {
+  try {
+    const audits = await fetch(`${API}/api/audit?limit=50`).then(r=>r.json());
+    const tenMinAgo = new Date(Date.now() - 10*60*1000).toISOString();
+    const escalations = audits.filter(a => a.action === 'ESCALATION' && a.timestamp >= tenMinAgo);
+    if (!escalations.length) return;
+    const latest = escalations[0];
+    if (latest.timestamp === _lastEscalationTs) return;
+    _lastEscalationTs = latest.timestamp;
+    const prod = _products[latest.product_id]?.name || latest.product_id;
+    const time = new Date(latest.timestamp).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false});
+    document.getElementById('escalation-text').textContent = `ESCALATION — ${prod} at ${time}: ${latest.reason}`;
+    document.getElementById('escalation-alert').style.display = 'flex';
+  } catch(e) {}
+}
+
+// ── Theme toggle ─────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  document.getElementById('theme-toggle').textContent = next === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('heweso-theme', next);
+}
+
+function applyStoredTheme() {
+  const saved = localStorage.getItem('heweso-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
+}
+
+async function boot() {
+  applyStoredTheme();
+  await loadProducts();
+  await Promise.all([loadStats(), refreshCompetitors(), initSalesFeed(), loadTrends()]);
+  updateButtonStates();
+  setInterval(loadStats, 3000);
+  setInterval(loadProducts, 5000);
+  setInterval(refreshCompetitors, 5000);
+  setInterval(loadTrends, 30000);
+  setInterval(_refreshStripTimes, 5000);
+  setInterval(checkEscalations, 15000);
+}
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: silver_sales_enriched
+    description: "Satış verisi + ürün bilgisi ile zenginleştirilmiş, sadece bugünün Bronze verisi işlenir."
+    columns:
+      - name: sale_id
+        description: "Her satışın benzersiz kimliği"
+        tests:
+          - unique
+          - not_null
+      - name: product_id
+        description: "Satılan ürünün ID'si — 4 gerçek üründen biri olmalı"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: source('bronze', 'bronze_products')
+                field: product_id
+
+  - name: silver_price_actions
+    description: >
+      Audit log'dan filtrelenmiş fiyat aksiyonları. Data quality gate uygulanmış:
+      product_id gerçek bir ürüne ait değilse (UNKNOWN gibi) bu tabloya hiç girmez.
+    columns:
+      - name: product_id
+        description: "Fiyatı değişen ürün — quality gate sayesinde her zaman geçerli bir ürün"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: source('bronze', 'bronze_products')
+                field: product_id
+      - name: direction
+        description: "Fiyat DOWN mı UP mı SAME mi değişti"
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['UP', 'DOWN', 'SAME']
+
+  - name: silver_competitor_gaps
+    description: "Rakip fiyatları ile bizim fiyatlarımız arasındaki fark, ürün ve rakip bazında."
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: source('bronze', 'bronze_products')
+                field: product_id

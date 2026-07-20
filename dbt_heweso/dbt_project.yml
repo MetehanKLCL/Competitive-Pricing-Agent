@@ -1,0 +1,15 @@
+name: 'heweso_pricing'
+version: '1.0.0'
+config-version: 2
+
+profile: 'heweso'
+
+model-paths: ["models"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  heweso_pricing:
+    +materialized: table
