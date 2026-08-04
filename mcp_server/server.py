@@ -1,23 +1,22 @@
 """
 mcp_server/server.py — Exposes all 14 Heweso pricing tools via MCP.
 
-MCP (Model Context Protocol): standard bir protokol, AI istemcilerin
-(Claude Desktop, Claude Code, vs.) araçları keşfedip çağırmasını sağlar —
-tıpkı USB'nin cihazları standartlaştırması gibi.
+MCP (Model Context Protocol): a standard protocol that lets AI clients
+(Claude Desktop, Claude Code, etc.) discover and call tools — much like USB
+standardizes devices.
 
-Bu dosya mevcut tools/*.py fonksiyonlarını YENİDEN YAZMAZ — onları
-ince bir MCP sarmalayıcısı ile "dışarıya açar". Mantık hep tools/'da
-yaşıyor, burada sadece isim + tip bilgisi + docstring var (FastMCP bunlardan
-otomatik JSON şema üretir).
+This file does NOT rewrite the existing tools/*.py functions — it "exposes"
+them via a thin MCP wrapper. The logic always lives in tools/; here we only have
+the name + type info + docstring (FastMCP auto-generates the JSON schema from them).
 
-Ana pricing agent (agent/bedrock_agent.py) bu dosyayı hiç kullanmaz —
-o kendi Bedrock native tool-calling formatını kullanmaya devam eder.
-MCP, var olan sisteme EKLENEN, onu DEĞİŞTİRMEYEN ayrı bir erişim katmanı.
+The main pricing agent (agent/bedrock_agent.py) never uses this file — it keeps
+using its own Bedrock native tool-calling format. MCP is a separate access layer
+ADDED to the existing system, not one that CHANGES it.
 
-Yerel çalıştırma (stdio transport):
+Run locally (stdio transport):
     python3 -m mcp_server.server
 
-Claude Desktop'a bağlamak için (~/Library/Application Support/Claude/claude_desktop_config.json):
+To connect to Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json):
     {
       "mcpServers": {
         "heweso-pricing": {
@@ -28,10 +27,10 @@ Claude Desktop'a bağlamak için (~/Library/Application Support/Claude/claude_de
       }
     }
 
-Claude Code'a bağlamak için (terminalden):
+To connect to Claude Code (from the terminal):
     claude mcp add heweso-pricing -- python3 -m mcp_server.server
 
-Debug/test için (MCP Inspector, tarayıcıda görsel arayüz açar):
+For debug/test (MCP Inspector, opens a visual UI in the browser):
     npx @modelcontextprotocol/inspector python3 -m mcp_server.server
 """
 

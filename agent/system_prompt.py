@@ -1,3 +1,17 @@
+"""
+system_prompt — The ReAct decision script the Bedrock agent runs on every turn.
+
+What it does:
+  - Defines SYSTEM_PROMPT: the step-by-step pricing playbook (trend → sales →
+    bundle check → decide → act → summary) the model must follow.
+  - Encodes the hard rules (min/max price, never call a tool twice, exact target
+    price) that keep the model on rails.
+
+Why it exists / how it fits:
+  This is the agent's "brain" as prose — the single place the decision flow is
+  authored. bedrock_agent.py feeds this prompt to Nova Lite alongside the 14 tools.
+"""
+
 SYSTEM_PROMPT = """You are the autonomous pricing agent for Heweso e-commerce platform.
 LANGUAGE: English only. Every single word you output must be in English. No Turkish.
 

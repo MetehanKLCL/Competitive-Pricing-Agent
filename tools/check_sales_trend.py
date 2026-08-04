@@ -1,8 +1,14 @@
 """
-check_sales_trend — Satış hızını karşılaştırır.
+check_sales_trend — Compares sales velocity across two time windows.
 
-Son X dakika vs önceki X dakikayı karşılaştırarak
-satışların düşüp düşmediğini tespit eder.
+What it does:
+  - Counts sales in the last X minutes vs the previous X minutes.
+  - Classifies the change into OK / WARNING / CRITICAL / SURGE / NO_DATA.
+
+Why it exists / how it fits:
+  This is STEP 1 of the agent's decision flow — the trend it returns drives
+  everything downstream (crisis pricing on CRITICAL, price raise / bundle
+  discount on SURGE). A min-volume gate keeps a single sale from faking a SURGE.
 """
 
 import os
@@ -20,24 +26,25 @@ SALES_TABLE = os.getenv("DYNAMODB_SALES_TABLE", "heweso-sales")
 _dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 _table    = _dynamodb.Table(SALES_TABLE)
 
-# SURGE'ü gürültüden ayırmak için minimum hacim eşiği. Önceki pencere boşsa
-# (previous_count == 0) tek bir satış bile %100 artış gibi görünür ve sahte
-# SURGE üretir — bu da gereksiz fiyat yükseltmesi / bundle indirimi tetikler.
-# SURGE ancak son pencerede en az bu kadar satış varsa ilan edilir.
+# Minimum volume threshold that separates a real SURGE from noise. When the
+# previous window is empty (previous_count == 0) even a single sale looks like a
+# 100% jump and produces a fake SURGE — which would trigger a needless price
+# raise / bundle discount. A SURGE is only declared if the latest window has at
+# least this many sales.
 MIN_SURGE_COUNT = 3
 
 
 def check_sales_trend(product_id: str, window_minutes: int = 30) -> dict:
     """
-    Son window_minutes dakikayı önceki window_minutes dakikayla karşılaştırır.
+    Compares the last window_minutes minutes with the previous window_minutes.
 
     Returns:
         {
             "trend":          "OK" | "WARNING" | "CRITICAL" | "SURGE" | "NO_DATA",
-            "current_count":  int,   # son X dakikadaki satış sayısı
-            "previous_count": int,   # önceki X dakikadaki satış sayısı
-            "change_pct":     float, # % değişim (negatif = düşüş)
-            "message":        str,   # açıklama
+            "current_count":  int,   # sales in the last X minutes
+            "previous_count": int,   # sales in the previous X minutes
+            "change_pct":     float, # % change (negative = drop)
+            "message":        str,   # human-readable explanation
         }
     """
     now      = datetime.now(timezone.utc)
@@ -45,7 +52,7 @@ def check_sales_trend(product_id: str, window_minutes: int = 30) -> dict:
     t_mid    = (now - timedelta(minutes=window_minutes)).isoformat()
     t_start  = (now - timedelta(minutes=window_minutes * 2)).isoformat()
 
-    # Son window
+    # Latest window
     r_current = _table.query(
         IndexName="product_id-timestamp-index",
         KeyConditionExpression=(
@@ -55,7 +62,7 @@ def check_sales_trend(product_id: str, window_minutes: int = 30) -> dict:
     )
     current_count = len(r_current.get("Items", []))
 
-    # Önceki window
+    # Previous window
     r_previous = _table.query(
         IndexName="product_id-timestamp-index",
         KeyConditionExpression=(
@@ -65,7 +72,7 @@ def check_sales_trend(product_id: str, window_minutes: int = 30) -> dict:
     )
     previous_count = len(r_previous.get("Items", []))
 
-    # Hiç veri yoksa
+    # No data at all
     if previous_count == 0 and current_count == 0:
         return {
             "trend": "NO_DATA",
@@ -75,13 +82,13 @@ def check_sales_trend(product_id: str, window_minutes: int = 30) -> dict:
             "message": f"No sales data in last {window_minutes * 2} minutes.",
         }
 
-    # % değişim hesapla
+    # Compute % change
     if previous_count == 0:
-        change_pct = 100.0  # önceden hiç yoktu, şimdi var → SURGE
+        change_pct = 100.0  # nothing before, sales now → SURGE
     else:
         change_pct = ((current_count - previous_count) / previous_count) * 100
 
-    # Trend kategorisi
+    # Trend category
     if change_pct <= -80:
         trend   = "CRITICAL"
         message = (

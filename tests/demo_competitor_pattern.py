@@ -1,10 +1,10 @@
 """
 Demo script: flash sale vs structural competitor pattern.
 
-Kullanım:
-  python3 tests/demo_competitor_pattern.py flash      → undercut_since = şimdi (FLASH_SALE)
-  python3 tests/demo_competitor_pattern.py structural → undercut_since = 4 saat önce (STRUCTURAL)
-  python3 tests/demo_competitor_pattern.py reset      → undercut_since temizle
+Usage:
+  python3 tests/demo_competitor_pattern.py flash      → undercut_since = now (FLASH_SALE)
+  python3 tests/demo_competitor_pattern.py structural → undercut_since = 4 hours ago (STRUCTURAL)
+  python3 tests/demo_competitor_pattern.py reset      → clear undercut_since
 """
 
 import sys
@@ -25,7 +25,7 @@ PRODUCTS_TABLE    = os.getenv("DYNAMODB_PRODUCTS_TABLE", "heweso-products")
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 UNDERCUT_PAIRS = [
-    # Fiyatı bizden düşük olan rakipler (seed data varsayılan)
+    # Competitors priced below us (seed data default)
     ("PROD-001", "Trendyol"),
     ("PROD-002", "Trendyol"),
     ("PROD-003", "Trendyol"),
@@ -41,7 +41,7 @@ def set_undercut_since(minutes_ago: int):
             UpdateExpression="SET undercut_since = :t",
             ExpressionAttributeValues={":t": ts},
         )
-    print(f"✅ undercut_since = {minutes_ago} dakika önce ({ts[:19]})")
+    print(f"✅ undercut_since = {minutes_ago} minutes ago ({ts[:19]})")
 
 
 def clear_undercut():
@@ -51,14 +51,14 @@ def clear_undercut():
             Key={"product_id": pid, "competitor_name": comp},
             UpdateExpression="REMOVE undercut_since",
         )
-    print("✅ undercut_since temizlendi")
+    print("✅ undercut_since cleared")
 
 
 def show_status():
     from tools.check_competitor_pattern import check_competitor_pattern
     for pid in ["PROD-001", "PROD-002", "PROD-003"]:
         r = check_competitor_pattern(pid)
-        mins = f"{r['undercut_minutes']:.0f}dk" if r['undercut_minutes'] is not None else "—"
+        mins = f"{r['undercut_minutes']:.0f}min" if r['undercut_minutes'] is not None else "—"
         print(f"  {pid}: {r['pattern']:15} ({mins}) | {r['recommendation'][:60]}")
 
 
@@ -66,22 +66,22 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "status"
 
     if mode == "flash":
-        set_undercut_since(5)   # 5 dakika önce → FLASH_SALE
-        print("\nDurum:")
+        set_undercut_since(5)   # 5 minutes ago → FLASH_SALE
+        print("\nStatus:")
         show_status()
-        print("\nEfekt: Ajan 'FLASH_SALE — bekliyorum' diyecek, fiyat değiştirmeyecek.")
+        print("\nEffect: The agent will say 'FLASH_SALE — waiting' and not change the price.")
 
     elif mode == "structural":
-        set_undercut_since(240)  # 4 saat önce → STRUCTURAL
-        print("\nDurum:")
+        set_undercut_since(240)  # 4 hours ago → STRUCTURAL
+        print("\nStatus:")
         show_status()
-        print("\nEfekt: Ajan 'STRUCTURAL — harekete geçiyorum' diyecek, fiyat düşürecek.")
+        print("\nEffect: The agent will say 'STRUCTURAL — acting' and lower the price.")
 
     elif mode == "reset":
         clear_undercut()
-        print("\nDurum (temizlendi):")
+        print("\nStatus (cleared):")
         show_status()
 
     else:
-        print("Durum:")
+        print("Status:")
         show_status()

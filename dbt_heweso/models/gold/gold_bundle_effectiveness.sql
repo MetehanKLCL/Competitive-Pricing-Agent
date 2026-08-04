@@ -1,8 +1,9 @@
--- Gold: Bundle indirimlerinin satışa etkisi (epsilon-greedy öğrenme sonuçları)
--- Python karşılığı: infrastructure/medallion/gold.py -> build_bundle_effectiveness()
+-- gold_bundle_effectiveness — Gold: sales impact of bundle discounts (epsilon-greedy learning results).
+-- What: joins bundle actions to that day's sales per (action_date, product_id).
+-- Why:  Python equivalent is infrastructure/medallion/gold.py -> build_bundle_effectiveness().
 --
--- Event-date bazlı: bundle aksiyonu ile o günkü satışlar aynı OLAY tarihinde
--- (action_date = sale_date) eşleşir; snapshot tarihine göre değil.
+-- By event date: a bundle action matches that day's sales on the same EVENT date
+-- (action_date = sale_date), not the snapshot date.
 
 {{ config(materialized='table') }}
 

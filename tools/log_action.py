@@ -60,8 +60,8 @@ def log_action(
         "agent_decision": agent_decision,
     }
 
-    # Yapısal alan sadece bundle log'larında eklenir. None ise hiç yazılmaz —
-    # diğer audit kayıtları gereksiz şişmesin. DynamoDB float değil Decimal ister.
+    # Structured field only added on bundle logs. If None it is never written,
+    # so other audit records don't bloat. DynamoDB needs Decimal, not float.
     if bundle_discount_pct is not None:
         item["bundle_discount_pct"] = Decimal(str(bundle_discount_pct))
 

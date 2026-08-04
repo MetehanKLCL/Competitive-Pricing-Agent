@@ -196,4 +196,26 @@ uvicorn frontend.api:app --port 8000 --reload   # → http://localhost:8000
 
 ---
 
+## Roadmap / Future improvements
+
+Deliberately scoped out of the current build — each is a conscious "not yet at this scale"
+decision, not an oversight:
+
+- **Incremental / CDC ingestion for Bronze.** Today the pipeline does a full DynamoDB scan every
+  hour, so each partition holds *all history up to that day*. The production-correct version is
+  change-data-capture on the **event** tables (`sales`, `audit`) — via DynamoDB Streams or a
+  timestamp watermark — so each partition holds only that day's real events and ingestion cost
+  stays flat as data grows. The **state** tables (`products`, `competitors`) stay as snapshots,
+  since you always want their latest full state. (The event-date Gold aggregation already makes
+  the *data* correct; CDC removes the root cause and the full-scan cost.)
+- **Deploy the weekly analytics reporter** to its own Lambda + weekly EventBridge rule (code is
+  ready and tested locally; stays fully AWS-native).
+- **Real competitor scraping** (Apify / SerpAPI) instead of simulated prices — the biggest gap
+  between demo and product.
+- **Model comparison** — run the same scenarios on Nova Lite vs Claude Haiku and compare accuracy
+  against cost.
+- **Automate dbt** via a container-image Lambda + EventBridge (currently run manually).
+
+---
+
 *Built as an internship / portfolio project to demonstrate agentic data engineering on AWS.*

@@ -1,10 +1,15 @@
 """
-check_bundle_trigger — Aksesuar için parent telefon satışlarını kontrol eder.
+check_bundle_trigger — Checks the parent phone's sales on behalf of an accessory.
 
-Mantık:
-  - Her aksesuarın bir parent telefonu var (PROD-002 → PROD-001 gibi)
-  - Parent telefon SURGE yapıyorsa → aksesuar için bundle fırsatı var
-  - Agent bu bilgiyle aksesuar fiyatını proaktif indirebilir
+Logic:
+  - Every accessory has a parent phone (e.g. PROD-002 → PROD-001)
+  - If the parent phone is in SURGE → there is a bundle opportunity for the accessory
+  - With this signal the agent can proactively discount the accessory
+
+Why it exists / how it fits:
+  Implements the ONE-DIRECTION bundle rule (phone surge → accessory discount) and
+  runs the epsilon-greedy learner that picks the discount rate — the reinforcement
+  learning piece of the pipeline.
 """
 
 import os
@@ -13,11 +18,11 @@ import boto3
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-BUNDLE_RATES       = [5, 7, 9, 11]   # denenecek indirim oranları (%)
-EXPLORATION_PROB   = 0.30             # %30 keşif, %70 en iyi bilinen oranı kullan
-MIN_BUNDLE_SAMPLES = 3               # bir oranı "exploit" etmeden önce en az bu kadar
-                                     # kez denenmiş olmalı (confidence gate) — tek şanslı
-                                     # örnek en iyi ilan edilip kral olmasın
+BUNDLE_RATES       = [5, 7, 9, 11]   # discount rates to try (%)
+EXPLORATION_PROB   = 0.30             # 30% explore, 70% use the best known rate
+MIN_BUNDLE_SAMPLES = 3               # a rate must have been tried at least this many
+                                     # times before we "exploit" it (confidence gate) —
+                                     # so a single lucky sample isn't crowned the best
 
 load_dotenv()
 
@@ -29,11 +34,11 @@ _dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 def check_bundle_trigger(product_id: str) -> dict:
     """
-    Bu ürün bir aksesuarsa, parent telefonunun satış durumuna bakar.
-    Parent telefon SURGE yapıyorsa bundle fırsatı döner.
+    If this product is an accessory, looks at its parent phone's sales status.
+    Returns a bundle opportunity if the parent phone is in SURGE.
 
     Args:
-        product_id: Aksesuar ürün ID (PROD-002, PROD-004)
+        product_id: Accessory product ID (PROD-002, PROD-004)
 
     Returns:
         {
@@ -64,15 +69,16 @@ def check_bundle_trigger(product_id: str) -> dict:
             "recommendation":     "This product has no bundle parent — standard pricing rules apply.",
         }
 
-    # Parent telefon bilgisi
+    # Parent phone details
     parent = _dynamodb.Table(PRODUCTS_TABLE) \
         .get_item(Key={"product_id": parent_id}).get("Item", {})
     parent_name = parent.get("name", parent_id)
 
-    # Parent telefonun SURGE olup olmadığını TEK KAYNAKTAN öğren: check_sales_trend.
-    # Eskiden burada ayrı bir 30/30 dk sayımı + gevşek 1.5x eşiği vardı; bu,
-    # check_sales_trend'in 2x tanımıyla çelişiyordu. Artık "surge nedir" tanımı
-    # sistemde tek yerde — min-hacim koruması (MIN_SURGE_COUNT) da otomatik miras alınır.
+    # Learn whether the parent phone is in SURGE from a SINGLE SOURCE: check_sales_trend.
+    # This used to have its own 30/30-min count + a loose 1.5x threshold, which
+    # conflicted with check_sales_trend's 2x definition. Now "what is a surge" is
+    # defined in one place in the system — the min-volume guard (MIN_SURGE_COUNT)
+    # is inherited automatically too.
     from .check_sales_trend import check_sales_trend
     parent_trend = check_sales_trend(parent_id, window_minutes=30)
 
@@ -81,7 +87,7 @@ def check_bundle_trigger(product_id: str) -> dict:
     is_surge    = parent_trend["trend"] == "SURGE"
     surge_ratio = round(recent / prev, 2) if prev > 0 else None
 
-    # Epsilon-greedy discount seçimi
+    # Epsilon-greedy discount selection
     selected_discount, strategy = _pick_bundle_discount(product_id)
 
     if is_surge:
@@ -108,25 +114,27 @@ def check_bundle_trigger(product_id: str) -> dict:
 
 def _pick_bundle_discount(product_id: str) -> tuple:
     """
-    Geçmiş bundle indirimlerinden öğrenerek optimal oranı seçer.
-    Yeterli veri yoksa veya exploration modundaysa rastgele dener.
+    Learns the optimal rate from past bundle discounts.
+    If there isn't enough data, or in exploration mode, it tries a random rate.
 
     Returns: (discount_pct, strategy) — strategy: "exploit" | "explore" | "random"
     """
     from .run_analytics import run_analytics
 
-    # date = today filtresi — Hive partition pruning:
-    #   Bronze her gün TAM tarar (incremental değil), en son partition (bugün)
-    #   zaten tüm geçmişi içeriyor. Filtre olmadan Athena partition projection
-    #   range'indeki (2026-01-01,NOW) TÜM günlere bakıyordu — gereksiz S3 maliyeti.
+    # date = today filter — Hive partition pruning:
+    #   Bronze re-scans FULL history every day (not incremental), so the latest
+    #   partition (today) already contains all history. Without the filter, Athena
+    #   scanned EVERY day in the partition projection range (2026-01-01,NOW) —
+    #   needless S3 cost.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # YAPISAL ALAN (REGEXP DEĞİL): oran artık Silver'ın typed bundle_discount_pct
-    # kolonundan okunuyor — kaynakta (log_action) yazıldığı için reason metnini
-    # ayrıştırmaya gerek yok. Gelir de Silver'ın hazır `revenue` alanından geliyor
-    # (analyze_price_elasticity ile aynı desen). Reward = gelir, adet değil.
-    # n_pulls = o oranın kaç kez uygulandığı → confidence gate için.
-    # bundle_discount_pct IS NOT NULL → alanı olmayan eski kayıtlar yok sayılır.
+    # STRUCTURED FIELD (NOT REGEXP): the rate is now read from Silver's typed
+    # bundle_discount_pct column — since it is written at the source (log_action),
+    # there is no need to parse the reason text. Revenue also comes from Silver's
+    # ready-made `revenue` field (same pattern as analyze_price_elasticity).
+    # Reward = revenue, not unit count.
+    # n_pulls = how many times that rate was applied → for the confidence gate.
+    # bundle_discount_pct IS NOT NULL → old records without the field are ignored.
     sql = f"""
     SELECT
         pa.bundle_discount_pct AS rate,
@@ -151,8 +159,9 @@ def _pick_bundle_discount(product_id: str) -> tuple:
         if result["success"] and result["rows"]:
             best_rate = float(result["rows"][0][0])
             n_pulls   = int(float(result["rows"][0][1]))
-            # Confidence gate: en iyi oranı ancak yeterince denenmişse (n_pulls >= MIN)
-            # "exploit" et. Aksi halde tek şanslı örneğe güvenmeyip keşfe devam.
+            # Confidence gate: only "exploit" the best rate if it has been tried
+            # enough (n_pulls >= MIN). Otherwise don't trust a single lucky sample
+            # and keep exploring.
             if n_pulls >= MIN_BUNDLE_SAMPLES:
                 if random.random() > EXPLORATION_PROB:
                     return best_rate, "exploit"

@@ -1,5 +1,7 @@
--- Silver: Rakip fiyatları vs bizim fiyatlarımız (fark hesaplı)
--- Python karşılığı: infrastructure/medallion/silver.py -> transform_competitor_gaps()
+-- silver_competitor_gaps — Silver: competitor prices vs our prices.
+-- What: computes price_gap and gap_pct for each competitor-product pair.
+-- Why:  supports competitor-gap analytics; Python equivalent is
+--       infrastructure/medallion/silver.py -> transform_competitor_gaps().
 
 {{ config(materialized='table') }}
 
@@ -20,7 +22,7 @@ select
     c.competitor_name                                            as competitor,
     p.current_price                                              as our_price,
     c.price                                                       as competitor_price,
-    round(p.current_price - c.price, 2)                          as price_gap,    -- pozitif = biz pahalıyız
+    round(p.current_price - c.price, 2)                          as price_gap,    -- positive = we are more expensive
     round((p.current_price - c.price) / nullif(c.price, 0) * 100, 2) as gap_pct,
     p.current_price < c.price                                    as we_are_cheaper,
     c.undercut_since,

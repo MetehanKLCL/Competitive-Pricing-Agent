@@ -38,8 +38,8 @@ def send_email(subject: str, body: str, recipient: str = "", html_override: str 
             "error": str | None,
         }
     """
-    # Alıcı her zaman .env'deki doğrulanmış adres — dışarıdan gelen `recipient`
-    # bilerek yok sayılıyor (SES sandbox dışına çıkılsa bile güvenli).
+    # Recipient is always the verified address from .env — the caller-supplied
+    # `recipient` is intentionally ignored (safe even outside the SES sandbox).
     to_address = DEFAULT_RECIPIENT
     html_body = html_override or _wrap_html(subject, body)
 

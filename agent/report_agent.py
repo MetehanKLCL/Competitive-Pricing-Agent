@@ -1,15 +1,15 @@
 """
-report_agent.py — Weekly analytics report için kısa AI yorumu üretir.
+report_agent.py — Produces a short AI commentary for the weekly analytics report.
 
-ÖNEMLİ: Bu agent HİÇBİR SAYI HESAPLAMAZ. Tüm rakamlar zaten
-tools/generate_weekly_report.py tarafından SQL/Python ile hesaplanmış
-olarak gelir. Model sadece bu hazır rakamlara bakıp 2-3 cümlelik
-insan-okunur bir yorum yazar (öne çıkanlar, dikkat edilmesi gerekenler).
+IMPORTANT: This agent COMPUTES NO NUMBERS. All figures arrive already computed
+by tools/generate_weekly_report.py in SQL/Python. The model only looks at those
+ready-made figures and writes a 2-3 sentence human-readable insight (highlights,
+things to watch).
 
-Neden ayrı, basit bir çağrı (ReAct loop değil):
-  Ana pricing agent (bedrock_agent.py) fiyat KARARI alıyor, çok adımlı
-  muhakeme gerektiriyor. Bu agent sadece VAR OLAN veriyi özetliyor —
-  tool çağırmasına gerek yok, tek seferlik bir "yorumla" isteği yeterli.
+Why a separate, simple call (not a ReAct loop):
+  The main pricing agent (bedrock_agent.py) makes price DECISIONS and needs
+  multi-step reasoning. This agent only summarizes EXISTING data — it doesn't
+  need to call tools, so a single-shot "narrate this" request is enough.
 """
 
 import os
@@ -33,14 +33,15 @@ Do not repeat every number — pick the 1-2 most relevant points. Do not use mar
 
 def generate_report_insight(stats_summary: str) -> str:
     """
-    Verilen hazır istatistik özetinden 2-4 cümlelik insan-okunur yorum üretir.
+    Produces a 2-4 sentence human-readable insight from the given ready-made
+    stats summary.
 
     Args:
-        stats_summary: generate_weekly_report()'ın döndürdüğü düz metin özet
+        stats_summary: the plain-text summary returned by generate_weekly_report()
 
     Returns:
-        str — kısa yorum metni. Bedrock hatası olursa boş string döner
-        (rapor yine de sayılarla birlikte gönderilir, yorum opsiyonel).
+        str — short commentary text. Returns an empty string on a Bedrock error
+        (the report is still sent with its numbers; the commentary is optional).
     """
     try:
         response = _bedrock.converse(

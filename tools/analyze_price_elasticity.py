@@ -34,25 +34,26 @@ def analyze_price_elasticity(product_id: str) -> dict:
             "product_id": str,
             "elasticity_data": [
                 {
-                    "drop_pct": float,          # % indirim (negatif)
-                    "avg_revenue_after": float, # sonraki 60dk ortalama gelir
+                    "drop_pct": float,          # discount % (negative)
+                    "avg_revenue_after": float, # avg revenue in the next 60 min
                     "sample_count": int,
-                    "effective": bool,          # gelir > 0 ise
+                    "effective": bool,          # True if revenue > 0
                 }
             ],
             "recommendation": str,
             "optimal_drop_pct": float | None,
         }
     """
-    # Silver katmanını kullanıyoruz:
-    #   - price_change_pct ve direction Silver'da zaten hesaplı (REGEXP gerekmez)
-    #   - sale_id Silver'da mevcut (join için)
+    # We use the Silver layer:
+    #   - price_change_pct and direction are already computed in Silver (no REGEXP)
+    #   - sale_id is present in Silver (for the join)
     #
-    # date = {today} filtresi — Hive partition pruning:
-    #   Bronze her gün DynamoDB'yi TAM tarar (incremental değil), yani en son
-    #   partition (bugün) zaten tüm geçmişi içeriyor. Bu filtre olmadan Athena
-    #   partition projection range'indeki (2026-01-01,NOW) TÜM günlere bakıp
-    #   binlerce gereksiz S3 LIST isteği atıyordu — gerçek fatura sebebiydi.
+    # date = {today} filter — Hive partition pruning:
+    #   Bronze re-scans DynamoDB in FULL every day (not incremental), so the
+    #   latest partition (today) already contains all history. Without this
+    #   filter, Athena scanned EVERY day in the partition projection range
+    #   (2026-01-01,NOW), firing thousands of needless S3 LIST requests — the
+    #   real cause of the bill spike.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     sql = f"""
@@ -124,7 +125,7 @@ def analyze_price_elasticity(product_id: str) -> dict:
         except (ValueError, TypeError):
             continue
 
-    # Güven skoru: kaç örnekten öğrenildi?
+    # Confidence score: how many samples did we learn from?
     if best_drop_pct is None:
         confidence      = "none"
         confidence_note = "No revenue-positive price drop in history. Fall back to competitor match."
@@ -139,7 +140,7 @@ def analyze_price_elasticity(product_id: str) -> dict:
             f"Insufficient data ({best_sample_cnt} sample(s)). "
             f"Do NOT apply elasticity target — match competitor price instead."
         )
-        best_drop_pct = None  # model'e geçirilmeyecek
+        best_drop_pct = None  # not passed to the model
     elif best_sample_cnt < 10:
         confidence      = "medium"
         confidence_note = (

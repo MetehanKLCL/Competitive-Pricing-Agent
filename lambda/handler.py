@@ -30,7 +30,7 @@ def lambda_handler(event, context):
     """
     print(f"Event received: {json.dumps(event)}")
 
-    # Saat başı otomatik S3 export — Athena'nın elastiklik verisi taze kalsın
+    # Hourly automatic S3 export — keep Athena's elasticity data fresh
     _maybe_export_to_s3()
 
     product_ids = _get_product_ids(event)
@@ -57,10 +57,10 @@ def lambda_handler(event, context):
 
 def _maybe_export_to_s3():
     """
-    Her saat başı (minute == 0) tam Medallion pipeline çalıştırır:
-      1. Bronze: DynamoDB → S3 (ham veri)
-      2. Silver: Bronze → temizlenmiş + join edilmiş
-      3. Gold:   Silver → aggregate + iş metrikleri
+    At the top of every hour (minute == 0) runs the full Medallion pipeline:
+      1. Bronze: DynamoDB → S3 (raw data)
+      2. Silver: Bronze → cleaned + joined
+      3. Gold:   Silver → aggregated + business metrics
     """
     now = datetime.now(timezone.utc)
     if now.minute != 0:

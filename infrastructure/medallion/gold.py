@@ -1,32 +1,33 @@
 """
 gold.py — Silver → Gold aggregation.
 
-Medallion Architecture — Gold katmanı:
-  İş sorularına göre önceden hesaplanmış, aggregate edilmiş veri.
-  Silver'dan okur, Gold'a yazar.
-  Athena bu tabloları sorgularken büyük hesaplamalar yapmak zorunda kalmaz.
+Medallion Architecture — Gold layer:
+  Pre-computed, aggregated data organized around business questions.
+  Reads from Silver, writes to Gold.
+  Athena doesn't have to do heavy computation when querying these tables.
 
-Üretilen tablolar:
-  gold/daily_product_metrics/  — Ürün başına GÜNLÜK satış + fiyat özeti
-  gold/agent_performance/      — Agent'ın GÜNLÜK karar kalitesi
-  gold/bundle_effectiveness/   — Bundle indirimlerinin sonuçları
+Tables produced:
+  gold/daily_product_metrics/  — DAILY sales + price summary per product
+  gold/agent_performance/      — The agent's DAILY decision quality
+  gold/bundle_effectiveness/   — Outcomes of bundle discounts
 
 ═══════════════════════════════════════════════════════════════════════════════
-EVENT-DATE PARTITIONING (neden GROUP BY sale_date/action_date?)
+EVENT-DATE PARTITIONING (why GROUP BY sale_date/action_date?)
 ───────────────────────────────────────────────────────────────────────────────
-export_to_s3.py her çalıştığında DynamoDB'yi TAM tarar (full scan). Yani "bugün"
-partition'ı (date=BUGÜN) sadece bugünkü değil, TÜM geçmiş satışları içerir —
-tıpkı her gece bütün günlüğünü baştan fotokopileyip "bugün" klasörüne koymak gibi.
+export_to_s3.py does a FULL scan of DynamoDB every run. So the "today" partition
+(date=TODAY) holds not just today's sales but ALL historical sales — like
+photocopying the entire diary from scratch each night and dropping it in the
+"today" folder.
 
-Bu yüzden Gold'u snapshot tarihine (partition adı) göre gruplamak YANLIŞTIR:
-"date=BUGÜN" Gold satırı, o günün değil TÜM zamanların toplamını verirdi ve
-7 günü toplayınca eski satışlar tekrar tekrar sayılırdı (double-count).
+That's why grouping Gold by the snapshot date (the partition name) is WRONG: a
+"date=TODAY" Gold row would give the sum of ALL time, not that day's, and summing
+7 days would count old sales over and over (double-count).
 
-DOĞRU yol: her Silver satırının KENDİ gerçek olay tarihine bak (sales için
-sale_date, price_actions için action_date — ikisi de Silver'da hazır) ve ona göre
-grupla + o olay tarihine göre partition'a yaz. Böylece her satış TAM 1 kez sayılır
-ve haftalık rapor artık Silver yerine doğrudan Gold'u okuyabilir. Full-refresh ama
-idempotent: aynı çalıştırma tüm olay-tarihi partition'larını baştan yazar.
+The CORRECT way: look at each Silver row's OWN real event date (sale_date for
+sales, action_date for price_actions — both ready in Silver), group by that, and
+write to the partition of that event date. This way every sale is counted EXACTLY
+once and the weekly report can read Gold directly instead of Silver. Full-refresh
+but idempotent: the same run rewrites every event-date partition from scratch.
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -47,25 +48,25 @@ s3 = boto3.client("s3", region_name=AWS_REGION)
 today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-# ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
+# ── Helper functions ──────────────────────────────────────────────────────────
 
 def _read_silver(table: str, date: str) -> list:
-    """Silver katmanından NDJSON okur."""
+    """Reads NDJSON from the Silver layer."""
     key = f"silver/{table}/date={date}/data.json"
     try:
         response = s3.get_object(Bucket=BUCKET, Key=key)
         lines = response["Body"].read().decode("utf-8").strip().split("\n")
         return [json.loads(line) for line in lines if line.strip()]
     except s3.exceptions.NoSuchKey:
-        print(f"  ⚠️  Silver bulunamadı: {key} (önce silver.py çalıştırılmalı)")
+        print(f"  ⚠️  Silver not found: {key} (run silver.py first)")
         return []
     except Exception as e:
-        print(f"  ❌ Silver okuma hatası ({key}): {e}")
+        print(f"  ❌ Silver read error ({key}): {e}")
         return []
 
 
 def _write_gold(table: str, records: list, date: str):
-    """Gold katmanına NDJSON yazar (verilen olay tarihinin partition'ına)."""
+    """Writes NDJSON to the Gold layer (into the given event date's partition)."""
     key = f"gold/{table}/date={date}/data.json"
     body = "\n".join(json.dumps(r, default=str) for r in records)
     s3.put_object(Bucket=BUCKET, Key=key, Body=body.encode("utf-8"))
@@ -74,8 +75,8 @@ def _write_gold(table: str, records: list, date: str):
 
 def _write_gold_by_event_date(table: str, records_by_date: dict) -> int:
     """
-    records_by_date: {event_date: [record, ...]} — her olay tarihini KENDİ
-    partition'ına yazar. Full-refresh: her partition baştan yazılır (idempotent).
+    records_by_date: {event_date: [record, ...]} — writes each event date into its
+    OWN partition. Full-refresh: each partition is rewritten from scratch (idempotent).
     """
     total = 0
     for event_date in sorted(records_by_date):
@@ -85,23 +86,23 @@ def _write_gold_by_event_date(table: str, records_by_date: dict) -> int:
     return total
 
 
-# ── Gold aggregation'lar ──────────────────────────────────────────────────────
+# ── Gold aggregations ─────────────────────────────────────────────────────────
 
 def build_daily_product_metrics(snapshot_date: str) -> int:
     """
-    gold_daily_product_metrics: Ürün başına GÜNLÜK özet.
+    gold_daily_product_metrics: DAILY summary per product.
 
-    Soru: "8 Temmuz'da hangi ürün kaç adet sattı, kaç lira gelir üretti,
-           kaç kez fiyat değişti?"
+    Question: "on July 8, how many units did each product sell, how much revenue
+               did it produce, how many times did its price change?"
 
-    Gruplama anahtarı (event_date, product_id) — snapshot değil, satırın KENDİ
-    tarihi (sales → sale_date, price_actions → action_date). Böylece Gold gerçekten
-    günlük olur.
+    Grouping key is (event_date, product_id) — not the snapshot, but the row's OWN
+    date (sales → sale_date, price_actions → action_date). This makes Gold truly
+    daily.
     """
     sales         = _read_silver("sales_enriched", snapshot_date)
     price_actions = _read_silver("price_actions", snapshot_date)
 
-    # Satış aggregate: (olay tarihi, ürün) bazında topla
+    # Sales aggregate: sum by (event date, product)
     sales_agg = defaultdict(lambda: {
         "total_sales": 0, "total_revenue": 0.0, "prices": [],
         "product_name": "", "category": "",
@@ -116,7 +117,7 @@ def build_daily_product_metrics(snapshot_date: str) -> int:
         sales_agg[key]["product_name"]   = sale.get("product_name", "")
         sales_agg[key]["category"]       = sale.get("category", "")
 
-    # Fiyat değişimi sayıları: (olay tarihi, ürün) bazında
+    # Price change counts: by (event date, product)
     price_agg = defaultdict(lambda: {"drops": 0, "recoveries": 0, "total": 0})
     for action in price_actions:
         event_date = action.get("action_date") or snapshot_date
@@ -128,7 +129,7 @@ def build_daily_product_metrics(snapshot_date: str) -> int:
         elif action.get("direction") == "UP":
             price_agg[key]["recoveries"] += 1
 
-    # Tüm (tarih, ürün) anahtarlarını birleştir, sonra olay tarihine göre grupla
+    # Union all (date, product) keys, then group by event date
     all_keys = set(sales_agg.keys()) | set(price_agg.keys())
     by_date  = defaultdict(list)
     for key in all_keys:
@@ -156,14 +157,14 @@ def build_daily_product_metrics(snapshot_date: str) -> int:
 
 def build_agent_performance(snapshot_date: str) -> int:
     """
-    gold_agent_performance: Agent'ın GÜNLÜK karar özeti.
+    gold_agent_performance: the agent's DAILY decision summary.
 
-    Soru: "8 Temmuz'da PROD-002 için kaç indirim kararı aldı?
-           Ortalama indirim yüzdesi ne? Kaç bundle uyguladı?"
+    Question: "on July 8, how many discount decisions did it make for PROD-002?
+               What was the average discount %? How many bundles did it apply?"
 
-    Gruplama anahtarı (action_date, product_id). Bu tablo portfolio demosunda
-    güçlü — agent'ın öğrenip öğrenmediğini artık GERÇEK bir zaman serisi olarak
-    gösterebilirsin (her gün kendi partition'ında).
+    Grouping key is (action_date, product_id). This table is strong in a portfolio
+    demo — you can now show whether the agent is learning as a REAL time series
+    (each day in its own partition).
     """
     price_actions = _read_silver("price_actions", snapshot_date)
 
@@ -218,27 +219,28 @@ def build_agent_performance(snapshot_date: str) -> int:
 
 def build_bundle_effectiveness(snapshot_date: str) -> int:
     """
-    gold_bundle_effectiveness: Bundle indirimlerinin satışa etkisi.
+    gold_bundle_effectiveness: the sales impact of bundle discounts.
 
-    Soru: "8 Temmuz'da AirPods Pro 3'e kaç kez bundle indirimi uygulandı?
-           Ortalama indirim yüzdesi ne? O gün kaç adet sattı?"
+    Question: "on July 8, how many times was a bundle discount applied to the
+               AirPods Pro 3? What was the average discount %? How many units sold
+               that day?"
 
-    Gruplama anahtarı (action_date, product_id). Epsilon-greedy öğrenmenin
-    sonuçlarını gün gün görselleştirmek için kullanılabilir.
-    HIGH = günde 3+ satış, MEDIUM = 1-2, LOW = 0.
+    Grouping key is (action_date, product_id). Can be used to visualize the results
+    of epsilon-greedy learning day by day.
+    HIGH = 3+ sales/day, MEDIUM = 1-2, LOW = 0.
     """
     price_actions = _read_silver("price_actions", snapshot_date)
     sales         = _read_silver("sales_enriched", snapshot_date)
 
     bundle_actions = [a for a in price_actions if "bundle" in str(a.get("action", "")).lower()]
 
-    # (olay tarihi, ürün) → o gün o ürünün toplam satışı
+    # (event date, product) → that day's total sales for that product
     sales_by_key = defaultdict(int)
     for sale in sales:
         event_date = sale.get("sale_date") or snapshot_date
         sales_by_key[(event_date, sale["product_id"])] += int(sale.get("quantity", 1))
 
-    # (olay tarihi, ürün) → o gün o ürüne uygulanan bundle aksiyonları
+    # (event date, product) → bundle actions applied to that product that day
     bundles_by_key = defaultdict(list)
     for action in bundle_actions:
         event_date = action.get("action_date") or snapshot_date
@@ -265,15 +267,15 @@ def build_bundle_effectiveness(snapshot_date: str) -> int:
     return _write_gold_by_event_date("bundle_effectiveness", by_date)
 
 
-# ── Ana fonksiyon ─────────────────────────────────────────────────────────────
+# ── Main function ─────────────────────────────────────────────────────────────
 
 def run_gold(snapshot_date: str = None) -> int:
     """
-    snapshot_date: hangi Silver partition'ını okuyacağımız (varsayılan bugün).
-    Çıktı: her tablo, satırların KENDİ olay tarihine göre partition'lara yazılır.
+    snapshot_date: which Silver partition to read (default today).
+    Output: each table is written to partitions by the rows' OWN event date.
     """
     snapshot_date = snapshot_date or today
-    print(f"\n=== Silver → Gold Aggregate (snapshot okundu: {snapshot_date}, event-date'e göre yazılıyor) ===")
+    print(f"\n=== Silver → Gold Aggregate (snapshot read: {snapshot_date}, writing by event date) ===")
     n1 = build_daily_product_metrics(snapshot_date)
     n2 = build_agent_performance(snapshot_date)
     n3 = build_bundle_effectiveness(snapshot_date)

@@ -1,7 +1,8 @@
--- Gold: Agent'ın GÜNLÜK karar özeti (kaç indirim, kaç bundle, kaç escalation)
--- Python karşılığı: infrastructure/medallion/gold.py -> build_agent_performance()
+-- gold_agent_performance — Gold: the agent's DAILY decision summary (drops, bundles, escalations).
+-- What: aggregates price actions per (action_date, product_id) into decision counts.
+-- Why:  Python equivalent is infrastructure/medallion/gold.py -> build_agent_performance().
 --
--- Event-date bazlı: action_date = aksiyonun gerçek olay tarihi (snapshot değil).
+-- By event date: action_date = the action's real event date (not the snapshot).
 
 {{ config(materialized='table') }}
 

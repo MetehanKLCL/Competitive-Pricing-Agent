@@ -1,8 +1,15 @@
 """
-decide_price — Fiyat kararını matematiği doğru yaparak verir.
+decide_price — Makes the pricing decision with the math done correctly in Python.
 
-Model rakip fiyatı GEÇMEZ — tool direkt DynamoDB'den çeker.
-Bu sayede modelin değer aktarım hatası ortadan kalkar.
+What it does:
+  - Fetches the product + competitor prices itself, then computes the target
+    price for the given mode (crisis / recovery / bundle).
+  - Enforces the min_price floor and base_price ceiling on every path.
+
+Why it exists / how it fits:
+  Nova Lite makes numeric comparison errors, so ALL price math lives here, not
+  in the model. The model NEVER passes competitor prices — the tool reads them
+  straight from DynamoDB, which removes the model's value-passing errors.
 """
 
 import os
@@ -21,16 +28,19 @@ _dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 def decide_price(product_id: str, mode: str, traffic_ratio: float = None, preferred_drop_pct: float = None, bundle_discount_pct: float = None) -> dict:
     """
-    Rakip fiyatlarını kendisi çekip fiyat kararını verir.
+    Fetches competitor prices itself and makes the pricing decision.
 
     Args:
-        product_id:         Ürün ID
-        mode:               "crisis"   → fiyat düşür mü?
-                            "recovery" → fiyat artır mı?
-        traffic_ratio:      get_time_context'ten gelen trafik oranı (opsiyonel).
-        preferred_drop_pct: analyze_price_elasticity'den gelen optimal indirim % (opsiyonel, negatif).
-                            Verilirse rakip eşitleme yerine elastiklik bazlı hedef fiyat hesaplanır.
-                            Her iki durumda da min_price koruması devreye girer.
+        product_id:         Product ID
+        mode:               "crisis"   → should we drop the price?
+                            "recovery" → should we raise the price?
+                            "bundle"   → proactive accessory discount when the
+                                         parent phone is surging.
+        traffic_ratio:      Traffic ratio from get_time_context (optional).
+        preferred_drop_pct: Optimal discount % from analyze_price_elasticity
+                            (optional, negative). When given, an elasticity-based
+                            target price is computed instead of plain competitor
+                            matching. The min_price floor applies in either case.
 
     Returns:
         {
@@ -42,12 +52,12 @@ def decide_price(product_id: str, mode: str, traffic_ratio: float = None, prefer
             "base_price":          float,
             "competitor_gap_pct":  float | None,
             "traffic_ratio":       float | None,
-            "elasticity_target":   float | None,  # preferred_drop_pct'den hesaplanan hedef
+            "elasticity_target":   float | None,  # target derived from preferred_drop_pct
             "context_note":        str,
             "reason":              str,
         }
     """
-    # Ürün bilgilerini çek
+    # Fetch product details
     product = _dynamodb.Table(PRODUCTS_TABLE) \
         .get_item(Key={"product_id": product_id}).get("Item", {})
 
@@ -55,7 +65,7 @@ def decide_price(product_id: str, mode: str, traffic_ratio: float = None, prefer
     M = float(product.get("min_price", 0))
     B = float(product.get("base_price", P))
 
-    # Rakip fiyatlarını çek
+    # Fetch competitor prices
     comps = _dynamodb.Table(COMPETITORS_TABLE) \
         .query(KeyConditionExpression=Key("product_id").eq(product_id)) \
         .get("Items", [])
@@ -72,11 +82,11 @@ def decide_price(product_id: str, mode: str, traffic_ratio: float = None, prefer
 
     gap_pct = round((C - P) / P * 100, 2) if P > 0 else None
 
-    # Elastiklik bazlı hedef fiyat hesapla (varsa)
+    # Compute the elasticity-based target price (if provided)
     elasticity_target = None
     if preferred_drop_pct is not None and P > 0:
         elasticity_target = round(P * (1 + preferred_drop_pct / 100), 2)
-        elasticity_target = max(elasticity_target, M)  # min_price koruması
+        elasticity_target = max(elasticity_target, M)  # min_price floor
 
     context_note_parts = []
     if gap_pct is not None:
@@ -92,7 +102,7 @@ def decide_price(product_id: str, mode: str, traffic_ratio: float = None, prefer
     context_note_parts.append(f"Math: current={P}, competitor={C}, min={M}, base={B}.")
     context_note = " ".join(context_note_parts)
 
-    # Bundle modu: parent telefon SURGE'de, aksesuar proaktif indirim
+    # Bundle mode: parent phone is surging → proactive accessory discount
     if mode == "bundle":
         if bundle_discount_pct is None:
             bundle_discount_pct = 7.0
@@ -131,7 +141,7 @@ def decide_price(product_id: str, mode: str, traffic_ratio: float = None, prefer
                 "reason": f"Competitor ({C}) < min_price ({M}). Cannot match — floor protection.",
             }
         if C < P or (elasticity_target is not None and elasticity_target < P):
-            # Hedef: elastiklik ve rakip arasından en düşüğü al, ama min_price'ın altına inme
+            # Target: take the lower of elasticity and competitor, but never below min_price
             if elasticity_target is not None:
                 target = max(min(C, elasticity_target), M)
                 reason_detail = (

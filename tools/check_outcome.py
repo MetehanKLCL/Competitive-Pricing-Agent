@@ -18,13 +18,13 @@ AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
 AUDIT_TABLE = os.getenv("DYNAMODB_AUDIT_TABLE", "heweso-audit-log")
 SALES_TABLE = os.getenv("DYNAMODB_SALES_TABLE", "heweso-sales")
 
-# Bir fiyat değişimini "başarılı" saymak için, satışın değişimden sonraki bu
-# pencere içinde gelmesi gerekir. Üst sınır olmadan, günler sonra gelen bir
-# satış bile yanlışlıkla "değişim işe yaradı" sayılırdı. analyze_price_elasticity
-# ile aynı 60 dakikalık pencereyi kullanıyoruz — tutarlılık için.
+# To count a price change as "successful", a sale must land inside this window
+# after the change. Without an upper bound, a sale days later would wrongly be
+# credited to the change. We use the same 60-minute window as
+# analyze_price_elasticity — for consistency.
 OUTCOME_WINDOW_MIN = 60
-# Değişimin üstünden bu kadar dakika geçmeden FAILED demiyoruz (çok erken).
-# Demo değeri 2dk; prodüksiyonda 15-30dk olmalı.
+# We don't declare FAILED until this many minutes have passed since the change
+# (otherwise it's too early). Demo value is 2min; production should be 15-30min.
 PENDING_MIN = 2
 
 _dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)

@@ -1,9 +1,10 @@
--- Gold: Ürün başına GÜNLÜK satış + fiyat özeti (event-date bazlı)
--- Python karşılığı: infrastructure/medallion/gold.py -> build_daily_product_metrics()
+-- gold_daily_product_metrics — Gold: DAILY sales + price summary per product (by event date).
+-- What: aggregates sales and price actions per (event_date, product_id).
+-- Why:  Python equivalent is infrastructure/medallion/gold.py -> build_daily_product_metrics().
 --
--- ÖNEMLİ: snapshot (partition) tarihine göre DEĞİL, satırın kendi OLAY tarihine
--- (sale_date/action_date) göre gruplarız. Bronze full-scan olduğu için snapshot'a
--- göre gruplamak kümülatif/çift-sayıma yol açardı. Bkz. gold.py başındaki uzun not.
+-- IMPORTANT: we group by the row's own EVENT date (sale_date/action_date), NOT
+-- the snapshot (partition) date. Because Bronze is a full-scan, grouping by the
+-- snapshot would cause cumulative/double-counting. See the long note atop gold.py.
 
 {{ config(materialized='table') }}
 

@@ -1,22 +1,23 @@
 """
-get_time_context — Saatlik satış örüntüsünü gerçek veriden öğrenir.
+get_time_context — Learns the hourly sales pattern from real data.
 
-Hardcode kural yok. Athena'daki geçmiş satış verisine bakarak
-şu anki saatin bu ürün için peak mi off-peak mi olduğunu ÖLÇER.
+No hardcoded rules. It MEASURES whether the current hour is peak or off-peak
+for this product by looking at historical sales data in Athena.
 
-Önemli: bu tool bir KARAR (HOLD/AGGRESSIVE gibi) dönmez — ham bir sinyal döner
-ve kararı modele bırakır. Bu, kural-tabanlı sistemle veri-tabanlı sistem
-arasındaki farktır (bkz. CLAUDE.md "raw numbers not labels").
+Important: this tool does NOT return a decision (like HOLD/AGGRESSIVE) — it
+returns a raw signal and leaves the decision to the model. That is the
+difference between a rule-based and a data-driven system (see CLAUDE.md,
+"raw numbers not labels").
 
-Mantık:
-  - Geçmişteki satışları saat bazında grupla (Silver: silver_sales_enriched)
-  - Şu anki saatin satış sayısını ve genel ortalamayı hesapla
-  - traffic_ratio = bu_saat / genel_ortalama  (ham sayı)
-  - traffic_ratio >= 1.5 → traffic_level="high"  (doğal talep yüksek)
-  - traffic_ratio <= 0.3 → traffic_level="low"   (doğal talep düşük)
-  - arada              → traffic_level="medium"
-  - Özel gün varsa     → traffic_level="campaign" (traffic_ratio hesaplanmaz)
-  - Veri yoksa         → traffic_level="unknown"/"no_data"
+Logic:
+  - Group historical sales by hour (Silver: silver_sales_enriched)
+  - Compute the current hour's sale count and the overall average
+  - traffic_ratio = this_hour / overall_average  (raw number)
+  - traffic_ratio >= 1.5 → traffic_level="high"  (natural demand high)
+  - traffic_ratio <= 0.3 → traffic_level="low"   (natural demand low)
+  - in between          → traffic_level="medium"
+  - special day         → traffic_level="campaign" (traffic_ratio not computed)
+  - no data             → traffic_level="unknown"/"no_data"
 """
 
 from datetime import datetime, timezone, timedelta
@@ -42,23 +43,23 @@ SPECIAL_DAYS: dict[tuple[int, int], str] = {
 
 def get_time_context(product_id: str, test_hour: int = None) -> dict:
     """
-    Gerçek satış verisine dayanarak şu anki saatin
-    bu ürün için ne anlama geldiğini döner.
+    Returns what the current hour means for this product, based on real
+    sales data.
 
     Args:
-        product_id: Hangi ürünün satış örüntüsüne bakılacak
+        product_id: Which product's sales pattern to inspect
 
     Returns:
         {
             "local_time":        str,
             "hour":              int,
             "special_day":       str | None,
-            "traffic_ratio":     float | None,  # bu_saat / genel_ortalama (ham sinyal)
+            "traffic_ratio":     float | None,  # this_hour / overall_average (raw signal)
             "traffic_level":     "high" | "medium" | "low" | "campaign" | "unknown",
-            "current_hour_sales": float,  # bu saatin geçmiş ortalaması
-            "overall_avg_sales":  float,  # tüm saatlerin ortalaması
-            "data_points":        int,    # kaç satış kaydı analiz edildi
-            "context":           str,     # modele verilen düz-metin bağlam
+            "current_hour_sales": float,  # historical average for this hour
+            "overall_avg_sales":  float,  # average across all hours
+            "data_points":        int,    # how many sales records were analyzed
+            "context":           str,     # plain-text context handed to the model
         }
     """
     from .run_analytics import run_analytics
@@ -71,7 +72,7 @@ def get_time_context(product_id: str, test_hour: int = None) -> dict:
     day_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     local_str = f"{now.strftime('%Y-%m-%d %H:%M')} ({day_names[weekday]})"
 
-    # Özel günse direkt dön — traffic oranı yerine kampanya bağlamı ver
+    # If it's a special day, return early — give campaign context instead of traffic ratio
     if special:
         return {
             "local_time":         local_str,
@@ -88,13 +89,14 @@ def get_time_context(product_id: str, test_hour: int = None) -> dict:
             ),
         }
 
-    # Silver katmanını kullanıyoruz:
-    #   - sale_hour Silver'da zaten hesaplı, SQL'de timestamp parse etmeye gerek yok
+    # We use the Silver layer:
+    #   - sale_hour is already computed in Silver, no need to parse timestamp in SQL
     #
-    # date = today filtresi — Hive partition pruning:
-    #   Bronze her gün TAM tarar (incremental değil), en son partition (bugün)
-    #   zaten tüm geçmişi içeriyor. Filtre olmadan Athena partition projection
-    #   range'indeki (2026-01-01,NOW) TÜM günlere bakıyordu — gereksiz S3 maliyeti.
+    # date = today filter — Hive partition pruning:
+    #   Bronze re-scans FULL history every day (not incremental), so the latest
+    #   partition (today) already contains all history. Without the filter, Athena
+    #   scanned EVERY day in the partition projection range (2026-01-01,NOW) —
+    #   needless S3 cost.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     sql = f"""
@@ -123,7 +125,7 @@ def get_time_context(product_id: str, test_hour: int = None) -> dict:
             "context":            "No historical sales data for this product yet. Apply standard pricing rules.",
         }
 
-    # Saat → satış sayısı map'i
+    # Hour → sale count map
     hour_map: dict[int, int] = {}
     for row in result["rows"]:
         try:

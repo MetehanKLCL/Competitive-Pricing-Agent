@@ -1,5 +1,7 @@
--- Silver: Satış verisi + ürün bilgisi (join edilmiş, revenue hesaplı)
--- Python karşılığı: infrastructure/medallion/silver.py -> transform_sales_enriched()
+-- silver_sales_enriched — Silver: sales data + product info.
+-- What: joins sales with products and computes revenue (quantity * price_at_sale).
+-- Why:  agent tools (elasticity, time context) query this; Python equivalent is
+--       infrastructure/medallion/silver.py -> transform_sales_enriched().
 
 {{ config(materialized='table') }}
 
@@ -16,10 +18,10 @@ products as (
 select
     s.sale_id,
     s.timestamp,
-    -- sale_date = satışın GERÇEK olay tarihi (timestamp'in ilk 10 karakteri),
-    -- Bronze partition kolonu s.date DEĞİL. s.date = snapshot (fotokopi) günü;
-    -- Bronze full-scan olduğu için o gün tüm geçmişi içerir. Gold'u doğru
-    -- (event-date) partition'layabilmek için olay tarihini timestamp'ten alıyoruz.
+    -- sale_date = the sale's REAL event date (first 10 chars of timestamp),
+    -- NOT the Bronze partition column s.date. s.date = the snapshot (photocopy)
+    -- day; since Bronze is a full-scan, that day holds all history. We take the
+    -- event date from the timestamp so Gold can partition correctly (by event date).
     substr(s.timestamp, 1, 10)                       as sale_date,
     hour(from_iso8601_timestamp(s.timestamp))        as sale_hour,
     s.product_id,
@@ -27,7 +29,7 @@ select
     coalesce(p.category, 'unknown')                  as category,
     s.quantity,
     s.price_at_sale,
-    round(s.quantity * s.price_at_sale, 2)           as revenue,   -- türetilmiş alan
+    round(s.quantity * s.price_at_sale, 2)           as revenue,   -- derived field
     s.customer_id
 from sales s
 left join products p on s.product_id = p.product_id

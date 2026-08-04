@@ -1,5 +1,5 @@
--- Singular test: (date, product_id) gold_bundle_effectiveness'te benzersiz olmalı.
--- 0 satır dönerse test GEÇER, satır dönerse BAŞARISIZ.
+-- Singular test: (date, product_id) must be unique in gold_bundle_effectiveness.
+-- If it returns 0 rows the test PASSES, if it returns rows it FAILS.
 select
     date,
     product_id,

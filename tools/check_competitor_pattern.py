@@ -1,17 +1,22 @@
 """
-check_competitor_pattern — Rakibin fiyat düşüşünün flash sale mi
-yoksa kalıcı bir değişim mi olduğunu tespit eder.
+check_competitor_pattern — Detects whether a competitor's price drop is a
+flash sale or a lasting (structural) change.
 
-Yöntem:
-  CompetitorPrices tablosundaki undercut_since alanına bakar.
-  Bu alan, rakip fiyatı bizim fiyatımızın altına düştüğünde set edilir.
-  undercut_since ne kadar eskiyse, değişim o kadar kalıcı demektir.
+Method:
+  Looks at the undercut_since field in the CompetitorPrices table. This field is
+  set when a competitor's price first drops below ours. The older undercut_since
+  is, the more permanent the change is.
 
-Karar:
-  < 60 dakika  → FLASH_SALE  (bekle, tepki verme)
-  60-180 dk    → MONITOR     (dikkat et, henüz net değil)
-  > 180 dakika → STRUCTURAL  (kalıcı değişim, harekete geç)
-  undercut_since yok → NOT_UNDERCUT (rakip bizden pahalı/eşit)
+Decision:
+  < 60 minutes  → FLASH_SALE  (wait, don't react)
+  60-180 min    → MONITOR     (watch, not yet clear)
+  > 180 minutes → STRUCTURAL  (lasting change, act)
+  no undercut_since → NOT_UNDERCUT (competitor is more expensive/equal to us)
+
+Why it exists / how it fits:
+  Without this, the agent reacted to every temporary competitor discount. It
+  keeps the agent from chasing flash sales while still matching real structural
+  price moves.
 """
 
 import os
@@ -46,12 +51,12 @@ def check_competitor_pattern(product_id: str) -> dict:
     """
     now = datetime.now(timezone.utc)
 
-    # Bizim fiyatımız
+    # Our price
     product = _dynamodb.Table(PRODUCTS_TABLE) \
         .get_item(Key={"product_id": product_id}).get("Item", {})
     our_price = float(product.get("current_price", 0))
 
-    # Rakip fiyatları
+    # Competitor prices
     comps = _dynamodb.Table(COMPETITORS_TABLE) \
         .query(KeyConditionExpression=Key("product_id").eq(product_id)) \
         .get("Items", [])
@@ -68,10 +73,10 @@ def check_competitor_pattern(product_id: str) -> dict:
     C = float(cheapest["price"])
     comp_name = cheapest["competitor_name"]
 
-    # Bayat kronometre temizliği: artık bizden ucuz OLMAYAN her rakibin
-    # undercut_since'ını sıfırla. Yoksa bir rakip ucuzlayıp (damga yazılır)
-    # sonra tekrar pahalılaşınca damga kalır; ileride yeniden ucuzladığında
-    # eski damga yüzünden yanlışlıkla STRUCTURAL sayılır ve flash-sale koruması çöker.
+    # Stale-timer cleanup: reset undercut_since for every competitor that is NO
+    # longer cheaper than us. Otherwise, once a competitor drops (stamp written)
+    # then rises again, the stamp lingers; when it drops again later the old
+    # stamp would wrongly mark it STRUCTURAL and the flash-sale guard breaks.
     for comp in comps:
         if float(comp["price"]) >= our_price and comp.get("undercut_since"):
             clear_undercut(product_id, comp["competitor_name"])
@@ -84,7 +89,7 @@ def check_competitor_pattern(product_id: str) -> dict:
             "recommendation": f"{comp_name} ({C}) is not cheaper than our price ({our_price}).",
         }
 
-    # Ne zaman ucuzladı?
+    # When did it go cheaper?
     undercut_since = cheapest.get("undercut_since")
 
     if not undercut_since:
@@ -139,7 +144,7 @@ def check_competitor_pattern(product_id: str) -> dict:
 
 
 def clear_undercut(product_id: str, competitor_name: str) -> None:
-    """Rakip tekrar pahalılaşınca undercut_since sıfırlanır."""
+    """Resets undercut_since once the competitor is no longer cheaper than us."""
     _dynamodb.Table(COMPETITORS_TABLE).update_item(
         Key={"product_id": product_id, "competitor_name": competitor_name},
         UpdateExpression="REMOVE undercut_since",

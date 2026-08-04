@@ -1,9 +1,11 @@
--- Silver: Fiyat değişikliklerini filtreleyip zenginleştirir
--- Python karşılığı: infrastructure/medallion/silver.py -> transform_price_actions()
+-- silver_price_actions — Silver: filters and enriches price changes.
+-- What: keeps only price-related audit rows and computes price_change_pct/direction.
+-- Why:  feeds elasticity/bundle learning; Python equivalent is
+--       infrastructure/medallion/silver.py -> transform_price_actions().
 --
--- Data quality gate: product_id gerçek bir üründe yoksa (ör. Nova Lite'ın
--- log_action çağrısında product_id'yi unutup "UNKNOWN" default'una düşmesi)
--- bu kayıt Silver'a hiç girmez. Bronze'da ham hâliyle durmaya devam eder.
+-- Data quality gate: if product_id doesn't match a real product (e.g. Nova Lite
+-- forgetting product_id in a log_action call and falling back to the "UNKNOWN"
+-- default), this row never enters Silver. It still remains raw in Bronze.
 
 {{ config(materialized='table') }}
 
@@ -33,9 +35,9 @@ price_actions as (
 select
     a.log_id,
     a.timestamp,
-    -- action_date = fiyat aksiyonunun GERÇEK olay tarihi (timestamp'in ilk 10
-    -- karakteri), Bronze partition kolonu a.date DEĞİL (o snapshot/fotokopi günü).
-    -- Gold'u doğru event-date partition'layabilmek için burada düzeltiyoruz.
+    -- action_date = the price action's REAL event date (first 10 chars of the
+    -- timestamp), NOT the Bronze partition column a.date (that snapshot/photocopy
+    -- day). We fix it here so Gold can partition correctly by event date.
     substr(a.timestamp, 1, 10)                        as action_date,
     hour(from_iso8601_timestamp(a.timestamp))          as action_hour,
     a.product_id,
@@ -47,13 +49,13 @@ select
     round(
         (try_cast(a.new_value as double) - try_cast(a.old_value as double))
         / nullif(try_cast(a.old_value as double), 0) * 100, 2
-    )                                                   as price_change_pct,   -- türetilmiş alan
+    )                                                   as price_change_pct,   -- derived field
     case
         when try_cast(a.new_value as double) < try_cast(a.old_value as double) then 'DOWN'
         when try_cast(a.new_value as double) > try_cast(a.old_value as double) then 'UP'
         else 'SAME'
-    end                                                 as direction,           -- türetilmiş alan
-    try_cast(a.bundle_discount_pct as double)           as bundle_discount_pct, -- yapısal alan (REGEXP yerine kaynaktan)
+    end                                                 as direction,           -- derived field
+    try_cast(a.bundle_discount_pct as double)           as bundle_discount_pct, -- structured field (from source, not REGEXP)
     a.reason,
     a.agent_decision
 from price_actions a

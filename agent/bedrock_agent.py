@@ -1,5 +1,17 @@
 """
-bedrock_agent.py — ReAct loop with real-time log callback support.
+bedrock_agent.py — The ReAct loop that drives Amazon Bedrock (Nova Lite).
+
+What it does:
+  - Declares the 14 tool specs (toolConfig) and the converse() loop that lets the
+    model reason → call a tool → observe → repeat (max 10 iterations).
+  - Enforces the code-side guards: the price guard (update_price must use
+    decide_price's exact new_price) and the bundle guard (inject the epsilon-greedy
+    discount into decide_price/log_action even if the model forgot it).
+  - Streams thinking/tool/result events to an optional log callback for the UI.
+
+Why it exists / how it fits:
+  This is subsystem (1), the live pricing brain. system_prompt.py is the playbook;
+  this file is the engine that runs it and calls the tools/*.py functions for real.
 """
 
 import json
@@ -83,7 +95,7 @@ TOOL_DEFINITIONS = [
     {
         "toolSpec": {
             "name": "log_action",
-            "description": "Yapılan her aksiyonu AuditLog tablosuna kaydeder.",
+            "description": "Records every action taken into the AuditLog table.",
             "inputSchema": {
                 "json": {
                     "type": "object",
@@ -162,7 +174,7 @@ TOOL_DEFINITIONS = [
     {
         "toolSpec": {
             "name": "send_email",
-            "description": "Yöneticiye Amazon SES ile özet rapor maili gönderir.",
+            "description": "Sends a summary report email to the admin via Amazon SES.",
             "inputSchema": {
                 "json": {
                     "type": "object",
@@ -323,7 +335,7 @@ def _execute_tool(tool_name: str, tool_input: dict, price_update_log: list, log_
     elif tool_name == "check_competitors":
         result = check_competitors(**tool_input)
     elif tool_name == "decide_price":
-        # Bundle modunda: model selected_discount_pct'yi unutursa bile inject et
+        # Bundle mode: inject selected_discount_pct even if the model forgot it
         if tool_input.get("mode") == "bundle" and _bundle_discount_pct is not None:
             if "bundle_discount_pct" not in tool_input:
                 print(f"  [BUNDLE GUARD] Injecting bundle_discount_pct={_bundle_discount_pct}")
@@ -334,8 +346,8 @@ def _execute_tool(tool_name: str, tool_input: dict, price_update_log: list, log_
     elif tool_name == "analyze_price_elasticity":
         result = analyze_price_elasticity(**tool_input)
     elif tool_name == "update_price":
-        # Model bazen decide_price.new_price yerine kendi ürettiği fiyatı geçiriyor.
-        # Eğer decide_price bu session'da çalıştıysa, onun new_price'ını zorunlu kıl.
+        # The model sometimes passes its own price instead of decide_price.new_price.
+        # If decide_price ran in this session, force its new_price.
         if _decide_price_result and _decide_price_result.get("new_price") is not None:
             correct_price = _decide_price_result["new_price"]
             if tool_input.get("new_price") != correct_price:
@@ -345,11 +357,12 @@ def _execute_tool(tool_name: str, tool_input: dict, price_update_log: list, log_
         if result.get("success"):
             price_update_log.append(result)
     elif tool_name == "log_action":
-        # Bundle guard (log tarafı): indirim oranını KODDAN yapısal alan olarak
-        # enjekte et. Model'in geçirmesini beklemiyoruz. Sadece log gerçekten bir
-        # bundle aksiyonuysa (action/reason'da "bundle" geçiyorsa) ekleriz —
-        # böylece bundle-olmayan kayıtlara alan sızmaz. Downstream artık bu sayıyı
-        # reason metninden REGEXP'le kazımak yerine doğrudan okuyabilir.
+        # Bundle guard (log side): inject the discount rate FROM CODE as a
+        # structured field. We don't rely on the model to pass it. We only add it
+        # if the log is genuinely a bundle action ("bundle" appears in
+        # action/reason) — so the field doesn't leak into non-bundle records.
+        # Downstream can now read this number directly instead of scraping it out
+        # of the reason text with REGEXP.
         if _bundle_discount_pct is not None and "bundle_discount_pct" not in tool_input:
             blob = f"{tool_input.get('action', '')} {tool_input.get('reason', '')}".lower()
             if "bundle" in blob:
@@ -357,9 +370,9 @@ def _execute_tool(tool_name: str, tool_input: dict, price_update_log: list, log_
                 tool_input = {**tool_input, "bundle_discount_pct": _bundle_discount_pct}
         result = log_action(**tool_input)
     elif tool_name == "send_email":
-        # Recipient guard artık tek kaynakta: tools/send_email.py alıcıyı her
-        # zaman .env'deki doğrulanmış adrese zorluyor. Burada ayrıca strip'e
-        # gerek yok — model recipient uydursa bile tool onu yok sayar.
+        # The recipient guard now lives in a single source: tools/send_email.py
+        # always forces the recipient to the verified address in .env. No stripping
+        # needed here — even if the model invents a recipient, the tool ignores it.
         if price_update_log:
             result = send_email(**tool_input)
         else:
@@ -409,11 +422,11 @@ def run_agent(product_id: str, trigger_reason: str = "No sales detected", log_fn
     max_iterations = 10
     final_response = ""
     price_update_log = []
-    decide_price_result = None   # decide_price çıktısını sakla, update_price'ı koru
-    bundle_discount_pct = None   # check_bundle_trigger'dan gelen seçili oran
+    decide_price_result = None   # keep decide_price output to guard update_price
+    bundle_discount_pct = None   # selected rate from check_bundle_trigger
 
     for i in range(max_iterations):
-        print(f"--- Tur {i + 1} ---")
+        print(f"--- Turn {i + 1} ---")
         _emit({"type": "turn", "turn": i + 1})
 
         response = _bedrock.converse(
@@ -475,4 +488,4 @@ def run_agent(product_id: str, trigger_reason: str = "No sales detected", log_fn
 
 
 if __name__ == "__main__":
-    run_agent("PROD-001", trigger_reason="60 dakikadır satış yok")
+    run_agent("PROD-001", trigger_reason="No sales for 60 minutes")

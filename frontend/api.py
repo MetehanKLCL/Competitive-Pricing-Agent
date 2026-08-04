@@ -1,5 +1,15 @@
 """
-Heweso Dashboard — FastAPI backend
+api.py — Heweso Dashboard FastAPI backend.
+
+What it does:
+  - Serves REST endpoints the dashboard reads (products, sales, stats, trend,
+    price history, audit, competitors, analytics).
+  - Runs the demo simulation workers (sales + competitor price random walk) and
+    triggers the Bedrock agent, streaming its ReAct events to the UI over SSE.
+
+Why it exists / how it fits:
+  This is the local demo/visualization layer only — it wraps the same tools and
+  agent used in production so the pricing behavior can be watched live in a browser.
 """
 
 import json
@@ -165,18 +175,18 @@ def sales_stream():
 
 @app.get("/api/price-history/{product_id}")
 def get_price_history(product_id: str):
-    """AuditLog'daki PRICE_UPDATE kayıtlarından fiyat geçmişi üretir."""
+    """Builds price history from the PRICE_UPDATE records in the AuditLog."""
     audit_table = dynamodb.Table(AUDIT_TABLE)
     products_table = dynamodb.Table(PRODUCTS_TABLE)
 
-    # Tüm PRICE_UPDATE loglarını çek
+    # Fetch all PRICE_UPDATE logs
     items = audit_table.scan(
         FilterExpression="product_id = :pid AND #a = :act",
         ExpressionAttributeNames={"#a": "action"},
         ExpressionAttributeValues={":pid": product_id, ":act": "PRICE_UPDATE"},
     )["Items"]
 
-    # Gerçek fiyat değişikliklerini filtrele
+    # Filter to genuine price changes
     changes = []
     for i in items:
         old = i.get("old_value", "")
@@ -201,7 +211,7 @@ def get_price_history(product_id: str):
     base_price = float(product.get("base_price", product.get("current_price", 0)))
     current_price = float(product.get("current_price", 0))
 
-    # Sadece anlamlı fiyat değişikliklerini tut (küçük salınımları filtrele)
+    # Keep only significant price changes (filter out small fluctuations)
     significant = []
     THRESHOLD = 100
     last_price = None
@@ -210,8 +220,8 @@ def get_price_history(product_id: str):
             significant.append(c)
             last_price = c["new_price"]
 
-    # Timeline oluştur — direction'ı stored old_value'dan değil,
-    # önceki timeline noktasıyla karşılaştırarak hesapla (daha güvenilir)
+    # Build the timeline — compute direction by comparing with the previous
+    # timeline point, not from the stored old_value (more reliable)
     timeline = []
     if significant:
         timeline.append({
@@ -286,8 +296,8 @@ def get_competitors():
 
 # ── Competitor price simulation ──────────────────────────────────────────────
 
-# Başlangıç fiyatları — simülatör bunların etrafında random walk yapar
-# min_floor: simülatör bu değerin altına inemez (ürünün min_price'ı)
+# Starting prices — the simulator does a random walk around these
+# min_floor: the simulator can't go below this value (the product's min_price)
 _COMP_BASE = {
     "PROD-001": {"Amazon": 1059, "Best Buy": 1079, "MediaMarkt": 1089},
     "PROD-002": {"Amazon": 259,  "Best Buy": 269,  "MediaMarkt": 274},
@@ -311,12 +321,12 @@ _comp_sim_stop = threading.Event()
 
 def _competitor_sim_worker():
     """
-    Her 30-60 saniyede rakip fiyatları ±%3 random yürüyüş yapar.
-    %10 ihtimalle bir rakip %8-15 indirim flash sale açar (60-120sn sürer).
-    Fiyat baz fiyatın %20 dışına çıkamaz.
+    Every 30-60 seconds, competitor prices take a ±3% random walk.
+    With 10% probability a competitor opens an 8-15% flash sale (lasts 60-120s).
+    A price cannot move more than 20% away from its base price.
     """
     table = dynamodb.Table(COMPETITORS_TABLE)
-    flash_timers: dict[str, float] = {}  # "PROD-001:Trendyol" → bitiş zamanı
+    flash_timers: dict[str, float] = {}  # "PROD-001:Trendyol" → end time
 
     while not _comp_sim_stop.is_set():
         now = time.time()
@@ -327,35 +337,35 @@ def _competitor_sim_worker():
                 key = f"{pid}:{comp_name}"
                 base_price = base[comp_name]
 
-                # Flash sale süresi dolduysa normale dön
+                # If the flash sale expired, return to normal
                 if key in flash_timers and now > flash_timers[key]:
                     _comp_current[pid][comp_name] = float(base_price) * random.uniform(0.97, 1.03)
                     del flash_timers[key]
                     continue
 
-                # Aktif flash sale — fiyatı değiştirme
+                # Active flash sale — don't change the price
                 if key in flash_timers:
                     continue
 
-                # %10 ihtimalle flash sale başlat
+                # Start a flash sale with 10% probability
                 if random.random() < 0.10:
                     discount = random.uniform(0.08, 0.15)
                     new_price = float(base_price) * (1 - discount)
                     duration = random.uniform(60, 120)
                     flash_timers[key] = now + duration
                 else:
-                    # Normal random yürüyüş ±%3
+                    # Normal random walk ±3%
                     change = random.uniform(-0.03, 0.03)
                     new_price = price * (1 + change)
 
-                # Sınır: min_floor ile baz fiyatın %120'si arasında
+                # Bound: between min_floor and 120% of the base price
                 floor = _COMP_MIN_FLOOR.get(pid, float(base_price) * 0.85)
                 new_price = max(floor, min(new_price, float(base_price) * 1.20))
-                new_price = round(new_price / 10) * 10  # 10'a yuvarla
+                new_price = round(new_price / 10) * 10  # round to 10
 
                 _comp_current[pid][comp_name] = new_price
 
-                # DynamoDB'ye yaz
+                # Write to DynamoDB
                 try:
                     table.update_item(
                         Key={"product_id": pid, "competitor_name": comp_name},
@@ -406,17 +416,17 @@ def _simulation_worker():
             _sim_stop.wait(3)
             continue
 
-        # Bundle-aware ağırlıklar: aksesuar fiyatı düştüyse daha çok satış
+        # Bundle-aware weights: more sales if an accessory's price has dropped
         weights = []
         for p in products:
             base = float(p.get("base_price", p["current_price"]))
             curr = float(p["current_price"])
             discount_ratio = (base - curr) / base if base > 0 else 0
-            # Aksesuar + indirim varsa 3x ağırlık, normal ürün 1x
+            # Accessory + discount → higher weight, normal product → 1x
             is_accessory = "bundle_parent" in p
             w = 1.0
             if is_accessory and discount_ratio > 0.03:
-                w = 1.0 + (discount_ratio * 8)  # %7 indirim → ~1.56x ağırlık
+                w = 1.0 + (discount_ratio * 8)  # 7% discount → ~1.56x weight
             weights.append(w)
 
         product = random.choices(products, weights=weights, k=1)[0]
@@ -455,17 +465,17 @@ def demo_simulate_stop():
 def demo_crisis():
     from infrastructure.dynamodb_setup import seed_products, seed_sales
     _sim_stop.set()
-    seed_products()       # fiyatları base'e döndür
-    seed_sales(healthy=False)   # satışları durdur
-    # NOT: seed_competitors çağrılmıyor — undercut_since korunur
-    return {"status": "ok", "message": "Kriz verisi yüklendi"}
+    seed_products()       # reset prices back to base
+    seed_sales(healthy=False)   # stop sales
+    # NOTE: seed_competitors is not called — undercut_since is preserved
+    return {"status": "ok", "message": "Crisis data loaded"}
 
 
 @app.post("/api/demo/healthy")
 def demo_healthy():
     from infrastructure.dynamodb_setup import seed_all
     seed_all(crisis_mode=False)
-    return {"status": "ok", "message": "Sağlıklı veri yüklendi"}
+    return {"status": "ok", "message": "Healthy data loaded"}
 
 
 # ── Analytics ────────────────────────────────────────────────────────────────
@@ -473,25 +483,25 @@ def demo_healthy():
 @app.get("/api/analytics/revenue-impact")
 def get_revenue_impact():
     """
-    Agent'ın fiyat kararlarının gelir etkisini hesaplar.
+    Computes the revenue impact of the agent's price decisions.
 
-    Mantık:
-    - Kriz: 0 satış × herhangi fiyat = $0
-    - Agent fiyat düşürür → satışlar gelir
-    - Bu satışlar olmadan $0 olurdu → agent katkısı = o satışların geliri
+    Logic:
+    - Crisis: 0 sales × any price = $0
+    - The agent lowers the price → sales come in
+    - Without those sales it would be $0 → the agent's contribution = those sales' revenue
 
-    Yöntem:
-    - Audit log'daki PRICE_UPDATE eventleri = agent müdahalesi
-    - Her müdahale sonrası (o timestamp'ten sonra) gelen satışlar = katkı
+    Method:
+    - PRICE_UPDATE events in the audit log = agent interventions
+    - Sales that arrive after each intervention (after that timestamp) = contribution
     """
     audit_table   = dynamodb.Table(AUDIT_TABLE)
     sales_table   = dynamodb.Table(SALES_TABLE)
     products_table = dynamodb.Table(PRODUCTS_TABLE)
 
-    # Tüm ürünlerin base_price'ını al
+    # Get every product's base_price
     products = {p["product_id"]: p for p in products_table.scan()["Items"]}
 
-    # Gerçek price drop'ları bul (new < old, her ikisi de sayısal)
+    # Find genuine price drops (new < old, both numeric)
     audit_items = audit_table.scan(
         FilterExpression="#a = :a",
         ExpressionAttributeNames={"#a": "action"},
@@ -515,10 +525,10 @@ def get_revenue_impact():
 
     drops.sort(key=lambda x: x["timestamp"])
 
-    # Tüm satışları çek
+    # Fetch all sales
     all_sales = sales_table.scan()["Items"]
 
-    # Her drop için sonrasındaki satışları bul
+    # For each drop, find the sales that came after it
     impact_by_product = {}
     for drop in drops:
         pid = drop["product_id"]
@@ -570,7 +580,7 @@ def get_revenue_impact():
 
 @app.get("/api/analytics/summary")
 def get_analytics_summary():
-    """Agent kendi kararlarını analiz eder — Athena üzerinden."""
+    """The agent analyzes its own decisions — via Athena."""
     from tools.run_analytics import run_analytics
 
     queries = {
@@ -632,7 +642,7 @@ def get_analytics_summary():
 
 @app.post("/api/analytics/export")
 def trigger_export():
-    """DynamoDB → S3 export'u tetikler."""
+    """Triggers the DynamoDB → S3 export."""
     from infrastructure.export_to_s3 import run_export
     count = run_export()
     return {"status": "ok", "rows_exported": count}

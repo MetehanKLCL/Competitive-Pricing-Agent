@@ -1,29 +1,33 @@
 """
-setup_glue_tables.py — Medallion katmanları için Athena tablolarını oluşturur.
+setup_glue_tables.py — Creates the Athena tables for the Medallion layers.
 
-Bu script TEK SEFER çalıştırılır. Var olan tabloları siler ve yeniden oluşturur.
+Run this script ONCE. It drops existing tables and recreates them.
 
-Oluşturulan tablolar (heweso_analytics DB'de):
+Tables created (in the heweso_analytics DB):
 
-  BRONZE katmanı (ham veri, güncellendi — Hive partition + yeni path):
+  BRONZE layer (raw data, updated — Hive partition + new path):
     bronze_sales, bronze_audit, bronze_competitors, bronze_products
 
-  SILVER katmanı (temizlenmiş + join edilmiş, YENİ):
+  SILVER layer (cleaned + joined, NEW):
     silver_sales_enriched, silver_price_actions, silver_competitor_gaps
 
-  GOLD katmanı (aggregate, YENİ):
+  GOLD layer (aggregated, NEW):
     gold_daily_product_metrics, gold_agent_performance, gold_bundle_effectiveness
 
-  Mevcut tablolar (eski araçlarla uyumluluk için korundu):
-    sales, audit_log, competitors, products → artık bronze/ path'e işaret eder
+  Existing tables (kept for backward compatibility with older tools):
+    sales, audit_log, competitors, products → now point at the bronze/ path
 
-Partition projection nedir:
-  Athena, her yeni tarih için manuel olarak "MSCK REPAIR TABLE" çalıştırmak yerine
-  tarih aralığını bilirse otomatik olarak ilgili klasörü bulur.
-  Burada 2026-01-01'den TODAY'e kadar tüm tarihleri otomatik tarar.
+What is partition projection:
+  Instead of running "MSCK REPAIR TABLE" manually for each new date, if Athena
+  knows the date range it finds the relevant folder automatically.
+  Here it scans every date from 2026-01-01 to TODAY automatically.
 
-Çalıştırma:
+Run:
   python3 infrastructure/medallion/setup_glue_tables.py
+
+Why it exists / how it fits:
+  Defines the Glue/Athena schema (the Python-DDL approach) that sits over the
+  Bronze/Silver/Gold S3 files so the agent tools and reports can query them.
 """
 
 import os
@@ -43,10 +47,10 @@ RESULTS_PATH = f"s3://{BUCKET}/athena-results/"
 athena = boto3.client("athena", region_name=AWS_REGION)
 
 
-# ── Athena DDL çalıştırıcı ────────────────────────────────────────────────────
+# ── Athena DDL runner ─────────────────────────────────────────────────────────
 
 def run_ddl(sql: str, description: str):
-    """Athena'da DDL çalıştırır, tamamlanana kadar bekler."""
+    """Runs DDL on Athena and waits until it completes."""
     print(f"\n  → {description}")
     response = athena.start_query_execution(
         QueryString=sql,
@@ -56,7 +60,7 @@ def run_ddl(sql: str, description: str):
     )
     execution_id = response["QueryExecutionId"]
 
-    # Tamamlanana kadar bekle (max 60 saniye)
+    # Wait until it completes (max 60 seconds)
     for _ in range(60):
         time.sleep(1)
         status = athena.get_query_execution(QueryExecutionId=execution_id)
@@ -69,7 +73,7 @@ def run_ddl(sql: str, description: str):
             print(f"     ❌ {state}: {reason}")
             return False
 
-    print("     ⏳ Timeout — 60 saniye geçti")
+    print("     ⏳ Timeout — 60 seconds elapsed")
     return False
 
 
@@ -77,9 +81,9 @@ def drop_table(table_name: str):
     run_ddl(f"DROP TABLE IF EXISTS {DATABASE}.{table_name}", f"DROP {table_name}")
 
 
-# ── Partition projection config (tüm tablolar için ortak) ─────────────────────
-# Athena bu config sayesinde date=YYYY-MM-DD klasörlerini otomatik tarar.
-# Yeni gün eklendiğinde MSCK REPAIR TABLE gerekmez.
+# ── Partition projection config (shared by all tables) ────────────────────────
+# Thanks to this config, Athena scans the date=YYYY-MM-DD folders automatically.
+# No MSCK REPAIR TABLE needed when a new day is added.
 
 PARTITION_PROPS = """
   'projection.enabled' = 'true',
@@ -91,7 +95,7 @@ PARTITION_PROPS = """
 """
 
 
-# ── BRONZE TABLOLARI ──────────────────────────────────────────────────────────
+# ── BRONZE TABLES ─────────────────────────────────────────────────────────────
 
 def create_bronze_sales():
     drop_table("bronze_sales")
@@ -183,10 +187,10 @@ def create_bronze_products():
     """, "CREATE bronze_products")
 
 
-# ── MEVCUT TABLOLARI GÜNCELLE (eski araç uyumluluğu) ─────────────────────────
-# analyze_price_elasticity.py, get_time_context.py gibi araçlar
-# heweso_analytics.sales ve heweso_analytics.audit_log sorgular.
-# Bu tablolar artık bronze/ path'e işaret eder ama isimler aynı kalır.
+# ── UPDATE EXISTING TABLES (older tool compatibility) ─────────────────────────
+# Tools like analyze_price_elasticity.py and get_time_context.py query
+# heweso_analytics.sales and heweso_analytics.audit_log.
+# These tables now point at the bronze/ path but the names stay the same.
 
 def update_legacy_sales():
     drop_table("sales")
@@ -232,7 +236,7 @@ def update_legacy_audit():
     """, "UPDATE audit_log → bronze/audit/")
 
 
-# ── SILVER TABLOLARI ──────────────────────────────────────────────────────────
+# ── SILVER TABLES ─────────────────────────────────────────────────────────────
 
 def create_silver_sales_enriched():
     drop_table("silver_sales_enriched")
@@ -317,7 +321,7 @@ def create_silver_competitor_gaps():
     """, "CREATE silver_competitor_gaps")
 
 
-# ── GOLD TABLOLARI ────────────────────────────────────────────────────────────
+# ── GOLD TABLES ───────────────────────────────────────────────────────────────
 
 def create_gold_daily_product_metrics():
     drop_table("gold_daily_product_metrics")
@@ -390,38 +394,38 @@ def create_gold_bundle_effectiveness():
     """, "CREATE gold_bundle_effectiveness")
 
 
-# ── Ana fonksiyon ─────────────────────────────────────────────────────────────
+# ── Main function ─────────────────────────────────────────────────────────────
 
 def setup_all():
     print("=" * 60)
-    print("Medallion Architecture — Athena Tablo Kurulumu")
+    print("Medallion Architecture — Athena Table Setup")
     print("=" * 60)
 
-    print("\n📦 BRONZE tabloları (ham veri, Hive partition):")
+    print("\n📦 BRONZE tables (raw data, Hive partition):")
     create_bronze_sales()
     create_bronze_audit()
     create_bronze_competitors()
     create_bronze_products()
 
-    print("\n🔄 Mevcut tablolar güncelleniyor (eski araç uyumluluğu):")
+    print("\n🔄 Updating existing tables (older tool compatibility):")
     update_legacy_sales()
     update_legacy_audit()
 
-    print("\n🥈 SILVER tabloları (temizlenmiş + join):")
+    print("\n🥈 SILVER tables (cleaned + joined):")
     create_silver_sales_enriched()
     create_silver_price_actions()
     create_silver_competitor_gaps()
 
-    print("\n🥇 GOLD tabloları (aggregate + iş soruları):")
+    print("\n🥇 GOLD tables (aggregated + business questions):")
     create_gold_daily_product_metrics()
     create_gold_agent_performance()
     create_gold_bundle_effectiveness()
 
     print("\n" + "=" * 60)
-    print("✅ Kurulum tamamlandı!")
-    print("   Sonraki adım: python3 infrastructure/export_to_s3.py")
-    print("   Ardından:     python3 infrastructure/medallion/silver.py")
-    print("   Ardından:     python3 infrastructure/medallion/gold.py")
+    print("✅ Setup complete!")
+    print("   Next step: python3 infrastructure/export_to_s3.py")
+    print("   Then:      python3 infrastructure/medallion/silver.py")
+    print("   Then:      python3 infrastructure/medallion/gold.py")
     print("=" * 60)
 
 

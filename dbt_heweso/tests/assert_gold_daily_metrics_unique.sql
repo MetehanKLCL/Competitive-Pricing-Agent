@@ -1,7 +1,7 @@
--- Singular test: (date, product_id) gold_daily_product_metrics'te benzersiz olmalı.
--- Event-date fix sonrası ürün başına birden çok gün satırı var; ama gün+ürün ikilisi
--- tekil kalmalı (yoksa çift-sayım geri gelmiş demektir).
--- dbt kuralı: bu sorgu 0 satır dönerse test GEÇER, satır dönerse BAŞARISIZ.
+-- Singular test: (date, product_id) must be unique in gold_daily_product_metrics.
+-- After the event-date fix there are multiple day rows per product; but the
+-- day+product pair must stay unique (otherwise double-counting has come back).
+-- dbt rule: if this query returns 0 rows the test PASSES, if it returns rows it FAILS.
 select
     date,
     product_id,

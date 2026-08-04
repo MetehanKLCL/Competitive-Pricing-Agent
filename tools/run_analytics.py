@@ -39,8 +39,8 @@ def run_analytics(sql: str, max_rows: int = 20) -> dict:
             "error": str | None,
         }
     """
-    # Read-only guard: model serbest SQL yazar ama sadece okuma yapabilir.
-    # DROP/CREATE/INSERT ve ";" ile zincirlenmiş ikinci statement reddedilir.
+    # Read-only guard: the model writes free-form SQL but may only read.
+    # DROP/CREATE/INSERT and a second statement chained with ";" are rejected.
     normalized = sql.strip().rstrip(";").strip()
     first_word = normalized.split(None, 1)[0].upper() if normalized else ""
     if first_word not in ("SELECT", "WITH"):

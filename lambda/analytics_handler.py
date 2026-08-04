@@ -1,22 +1,22 @@
 """
 analytics_handler.py — Lambda entry point for the weekly analytics reporter.
 
-Ana pricing agent'tan (handler.py) BAĞIMSIZ, ayrı bir Lambda + EventBridge
-kuralıyla (örn. haftada bir) tetiklenir. Amacı fiyat kararı almak değil,
-son N günün verisini özetleyip yöneticiye email atmak.
+INDEPENDENT of the main pricing agent (handler.py), triggered by its own separate
+Lambda + EventBridge rule (e.g. once a week). Its purpose is not to make pricing
+decisions, but to summarize the last N days of data and email it to the manager.
 
-Akış:
-  1. generate_weekly_report() → Silver'dan sayıları çeker, HTML üretir (Python/SQL, hesap hatası riski yok)
-  2. generate_report_insight() → Bedrock'tan 2-4 cümlelik yorum ister (sayı üretmez, sadece yorumlar)
-  3. send_email() → HTML raporu yöneticiye gönderir
+Flow:
+  1. generate_weekly_report() → pulls numbers from Gold, builds HTML (Python/SQL, no math-error risk)
+  2. generate_report_insight() → asks Bedrock for a 2-4 sentence commentary (produces no numbers, only narrates)
+  3. send_email() → sends the HTML report to the manager
 """
 
 import json
 import os
 import sys
 
-# Lambda runtime: kod /var/task altında çalışır.
-# Yerel test: script'in bir üst klasörü (proje kökü) path'e eklenir.
+# Lambda runtime: code runs under /var/task.
+# Local test: the script's parent folder (the project root) is added to the path.
 sys.path.insert(0, "/var/task")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

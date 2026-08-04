@@ -1,20 +1,20 @@
 """
 generate_weekly_report — Builds a weekly HTML analytics report from GOLD tables.
 
-Neden artık Gold (eskiden Silver'dı):
-  Gold event-date'e göre partition'landığı için (bkz. gold.py başındaki not),
-  her `date=` partition'ı artık gerçekten O GÜNÜN verisini içerir — kümülatif
-  değil. Yani N günü toplamak güvenli, çift-sayım yok. Bu, Medallion mimarisinin
-  amaçladığı akış: raporlar Gold'dan beslenir. "Son N gün" penceresini de
-  `date` partition kolonuna göre süzeriz (partition pruning — Athena sadece
-  ilgili günleri tarar, ucuz).
+Why Gold now (it used to be Silver):
+  Because Gold is now partitioned by event date (see the note at the top of
+  gold.py), each `date=` partition truly contains THAT DAY's data — not a
+  cumulative snapshot. So summing N days is safe, with no double-counting. This
+  is the flow the Medallion architecture intends: reports feed from Gold. We also
+  filter the "last N days" window on the `date` partition column (partition
+  pruning — Athena scans only the relevant days, which is cheap).
 
-  (Tarihçe: Gold kümülatifken rapor Silver'ı okuyup timestamp'i elle parse
-  ediyordu — bu bir workaround'du. Gold düzeldiği için kaldırıldı.)
+  (History: while Gold was cumulative, the report read Silver and parsed the
+  timestamp by hand — that was a workaround. It was removed once Gold was fixed.)
 
-Tüm SAYISAL hesaplamalar SQL/Python'da yapılır (Nova Lite matematik
-hatası yapabildiği için — bkz. decide_price.py). AI sadece rapor
-metnini yorumlar, sayı üretmez.
+All NUMERIC computation is done in SQL/Python (because Nova Lite can make math
+errors — see decide_price.py). The AI only narrates the report text; it never
+produces numbers.
 """
 
 from datetime import datetime, timezone
@@ -24,12 +24,12 @@ from .run_analytics import run_analytics
 DATABASE = "heweso_analytics"
 
 
-# Not: Gold zaten (date, product_id) bazında günlük aggregate. Haftalık rapor için
-# günleri ürün bazında toplarız (sum). `date` partition kolonu 'YYYY-MM-DD' string
-# olduğu için son N gün filtresi leksikografik karşılaştırmayla doğru çalışır ve
-# Athena sadece ilgili partition'ları tarar (partition pruning).
+# Note: Gold is already a daily aggregate keyed by (date, product_id). For the
+# weekly report we sum the days per product. Since the `date` partition column is
+# a 'YYYY-MM-DD' string, the last-N-days filter works correctly via lexicographic
+# comparison and Athena scans only the relevant partitions (partition pruning).
 def _cutoff(days: int) -> str:
-    # 'date >= cutoff' için son N günün başlangıç tarihi (YYYY-MM-DD)
+    # Start date (YYYY-MM-DD) of the last N days, for 'date >= cutoff'
     return f"cast(date_add('day', -{days}, current_date) as varchar)"
 
 
@@ -93,14 +93,14 @@ def _fmt(val, default="0"):
 
 def generate_weekly_report(days: int = 7) -> dict:
     """
-    Son N günün satış, fiyat aksiyonu ve bundle özetini Gold'dan çeker,
-    HTML rapor üretir.
+    Pulls the last N days of sales, price actions and bundle summary from Gold,
+    and builds an HTML report.
 
     Returns:
         {
             "success": bool,
-            "html": str,             # tam HTML rapor (email'e gömülür)
-            "stats_summary": str,    # AI narrative'e verilecek düz metin özet
+            "html": str,             # full HTML report (embedded in the email)
+            "stats_summary": str,    # plain-text summary handed to the AI narrative
             "total_revenue": float,
             "total_sales": int,
             "total_price_changes": int,
