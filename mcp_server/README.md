@@ -1,60 +1,57 @@
-# mcp_server — Ne, Neden, Nasıl
+# mcp_server — What, Why, How
 
-Bu dosya MCP entegrasyonunun neden var olduğunu, ne eklediğimizi ve nasıl
-test edileceğini anlatır.
-
----
-
-## Neden var
-
-Projede zaten 14 araç var (`tools/*.py`), ama bunlar sadece Bedrock'un
-kendi tool-calling formatında tanımlıydı (`agent/bedrock_agent.py`
-içindeki `TOOL_DEFINITIONS`). Bu format **sadece Bedrock'un `converse()`
-API'siyle** çalışır — başka bir AI istemcisi (Claude Desktop, Claude Code)
-bu araçları hiç kullanamazdı.
-
-**MCP (Model Context Protocol):** AI istemcilerin araçlara standart bir
-şekilde bağlanmasını sağlayan protokol. USB benzetmesi: USB'den önce her
-cihazın kendi kablosu vardı, USB gelince "tek standart, her şey bağlanır"
-oldu. MCP de aynısını AI + araç bağlantısı için yapıyor.
-
-`mcp_server/server.py`, aynı 14 fonksiyonu **hiç kopyalamadan** MCP
-standardına göre "dışarıya açıyor". Artık MCP destekleyen her istemci
-(Claude Desktop, Claude Code, ileride başka araçlar) bunlara bağlanabilir.
-
-**Ana pricing agent (`agent/bedrock_agent.py`) hiç değişmedi.** O hâlâ
-kendi Bedrock native tool-calling'ini kullanıyor, 7/24 Lambda'da otomatik
-çalışmaya devam ediyor. MCP, var olan sisteme **eklenen**, onu
-**değiştirmeyen** ayrı bir erişim katmanı.
+This document explains why the MCP integration exists, what we added, and how to test it.
 
 ---
 
-## Dosya haritası
+## Why it exists
+
+The project already has 14 tools (`tools/*.py`), but they were only defined in Bedrock's
+own tool-calling format (`TOOL_DEFINITIONS` in `agent/bedrock_agent.py`). That format
+works **only with Bedrock's `converse()` API** — no other AI client (Claude Desktop,
+Claude Code) could use these tools at all.
+
+**MCP (Model Context Protocol):** a protocol that lets AI clients connect to tools in a
+standard way. A USB analogy: before USB, every device had its own cable; USB made it
+"one standard, everything plugs in." MCP does the same for AI + tools.
+
+`mcp_server/server.py` exposes those same 14 functions over the MCP standard **without
+copying any of them**. Now any MCP-capable client (Claude Desktop, Claude Code, other
+tools in the future) can connect to them.
+
+**The main pricing agent (`agent/bedrock_agent.py`) did not change at all.** It still
+uses its own Bedrock-native tool calling and keeps running autonomously 24/7 in the
+Lambda. MCP is a separate access layer **added to** the existing system, not one that
+**changes** it.
+
+---
+
+## File map
 
 ```
 Competitive-Pricing-Agent/
-├── requirements.txt        ← mcp[cli] eklendi
+├── requirements.txt        ← mcp[cli] added
 ├── mcp_server/
-│   ├── README.md            ← bu dosya
-│   ├── __init__.py          ← boş, "burası bir Python paketi" der
-│   └── server.py            ← 14 aracı MCP olarak duyuran kod
+│   ├── README.md            ← this file
+│   ├── __init__.py          ← empty; marks this as a Python package
+│   └── server.py            ← the code that announces the 14 tools over MCP
 ```
 
 ---
 
-## `requirements.txt` — ne indirdik
+## `requirements.txt` — what we installed
 
 ```
 mcp[cli]>=1.2.0
 ```
 
-Anthropic'in resmi Python MCP kütüphanesi. `[cli]` eki, test/debug için
-ekstra komut satırı araçları (MCP Inspector gibi) getirir. `pip install`
-ile kuruldu — hiçbir AWS kaynağına dokunmadan, sadece local paket kurulumu.
+Anthropic's official Python MCP library. The `[cli]` extra brings command-line
+tools for testing/debugging (such as the MCP Inspector). Installed with `pip install` —
+a local package install only, touching no AWS resources.
 
 ---
 
-## `mcp_server/server.py` — satır satır
+## `mcp_server/server.py` — line by line
 
 ```python
 from tools import (
@@ -71,127 +68,124 @@ def query_sales(product_id: str, minutes: int = 60) -> dict:
     return _query_sales(product_id, minutes)
 ```
 
-**Import kısmı:** Var olan 14 fonksiyonu içeri aktarıp her birine
-`as _query_sales` gibi alt-çizgili takma isim veriyoruz. Neden? Çünkü
-aşağıda **aynı isimle yeni bir fonksiyon** tanımlıyoruz — ikisi çakışmasın
-diye orijinaline farklı isim veriyoruz.
+**The import block:** we import the existing 14 functions and give each an
+underscore-prefixed alias like `as _query_sales`. Why? Because below we define a **new
+function with the same name** — the alias keeps the original from colliding with it.
 
-**`mcp = FastMCP("heweso-pricing-tools")`** — MCP sunucusunun kendisini
-oluşturur. String sadece bir isim etiketi, bağlanan istemci bu isimle görür.
+**`mcp = FastMCP("heweso-pricing-tools")`** — creates the MCP server itself. The string
+is just a label; a connecting client sees the server by this name.
 
-**`@mcp.tool()` decorator'ı — en önemli kısım.** Bu satır "bu fonksiyonu
-MCP aracı olarak duyur" demek. FastMCP şunlara bakarak otomatik bir JSON
-şema üretir:
-- **Tip ipuçları** (`product_id: str, minutes: int = 60`) → "iki parametre
-  alır, biri metin, biri sayı, ikincisi opsiyonel"
-- **Docstring** (`"""Fetches sales..."""`) → istemci bu açıklamayı okuyup
-  "bu aracı ne zaman çağırmalıyım" diye anlar
+**The `@mcp.tool()` decorator — the most important part.** This line means "announce
+this function as an MCP tool." FastMCP auto-generates a JSON schema by inspecting:
+- **type hints** (`product_id: str, minutes: int = 60`) → "takes two parameters, one
+  string, one integer, the second optional"
+- **the docstring** (`"""Fetches sales..."""`) → the client reads this to understand
+  "when should I call this tool"
 
-Bu, Bedrock'taki `TOOL_DEFINITIONS`'ı elle JSON olarak yazdığımıza
-benzer — ama burada **otomatik**, Python tip ipuçlarından üretiliyor.
+This is analogous to writing Bedrock's `TOOL_DEFINITIONS` JSON by hand — except here
+it's **automatic**, generated from Python type hints.
 
-**`return _query_sales(...)`** — asıl işi orijinal fonksiyona devrediyor.
-Bu wrapper fonksiyonların içinde **hiçbir yeni hesaplama yok**, hepsi
-`tools/*.py`'de yaşamaya devam ediyor. Bu kalıp 14 aracın hepsinde aynı.
+**`return _query_sales(...)`** — delegates the real work to the original function. These
+wrapper functions contain **no new computation**; all of it still lives in `tools/*.py`.
+This same pattern repeats for all 14 tools.
 
-**En alttaki başlatma kodu:**
+**The startup code at the bottom:**
 ```python
 if __name__ == "__main__":
     mcp.run(transport="stdio")
 ```
-`transport="stdio"` = "terminal girişi/çıkışı üzerinden konuş" demek.
-Claude Desktop veya Claude Code bu script'i arka planda çalıştırır ve
-onunla stdin/stdout üzerinden mesajlaşır — network portu açmaya gerek yok,
-en basit bağlantı yöntemi budur.
+`transport="stdio"` = "talk over terminal stdin/stdout." Claude Desktop or Claude Code
+runs this script in the background and exchanges messages with it over stdin/stdout — no
+network port needed, the simplest possible connection.
 
-`if __name__ == "__main__":` bloğunun içinde olduğu için, dosyayı sadece
-**import** ettiğimizde (kontrol amaçlı) bu satır çalışmaz — sunucu gerçek
-anlamda ancak `python3 -m mcp_server.server` çalıştırıldığında başlar.
+Because it's inside the `if __name__ == "__main__":` block, simply **importing** the
+file (for a sanity check) does not run this line — the server only truly starts when you
+run `python3 -m mcp_server.server`.
 
 ---
 
-## Neyi doğruladık
+## What we verified
 
-Sunucuyu gerçekten başlatmadan (terminal kilitlenmesin diye), sadece
-"14 araç doğru kaydoldu mu" kontrol edildi:
+Without actually starting the server (so the terminal wouldn't block), we only checked
+"did the 14 tools register correctly":
 
 ```python
 tools = await mcp.list_tools()
 ```
 
-Çıktı 14 araç ismini listeledi, hepsi doğru — `@mcp.tool()`
-decorator'larının hatasız çalıştığının kanıtı. Bu adımda hiçbir AWS
-kaynağına bağlanılmadı, sadece Python objelerinin doğru kurulduğu
-kontrol edildi.
+The output listed 14 tool names, all correct — proof that the `@mcp.tool()` decorators
+ran without error. No AWS resource was contacted in this step; it only confirmed the
+Python objects were set up correctly.
 
 ---
 
-## Nasıl bağlanılır / test edilir
+## How to connect / test
 
-### Claude Code'a bağlama (en kolay yol) — DOĞRULANDI (2026-07-01)
+### Connecting to Claude Code (the easiest path) — VERIFIED
 
-Düz terminalde (bu sohbetin dışında), proje klasöründe:
+In a plain terminal (outside this chat), in the project folder:
 ```bash
-claude mcp add heweso-pricing -e PYTHONPATH="/Users/metehankilicli/Desktop/DE-Projects/Competitive-Pricing-Agent" -- /opt/anaconda3/bin/python3 -m mcp_server.server
+claude mcp add heweso-pricing -e PYTHONPATH="<project-root>" -- /opt/anaconda3/bin/python3 -m mcp_server.server
 ```
+(Replace `<project-root>` with the absolute path to this repo, and the Python path with
+your own interpreter from `which python3`.)
 
-**Neden bare `python3` değil, tam yol + PYTHONPATH:** İlk denemede
-`claude mcp add heweso-pricing -- python3 -m mcp_server.server` ile
-kaydettik ama bağlantı başarısız oldu (`✘ Failed to connect`). Sebep:
-Claude Code bu sunucuyu proje klasörünün dışında, farklı bir Python
-ortamından başlatıyor — `python3` conda `base` ortamındaki paketleri
-(`mcp`, `boto3`, `dotenv`) göremiyor, `mcp_server` modülünü de bulamıyor.
+**Why the full path + PYTHONPATH instead of bare `python3`:** on the first attempt we
+registered it with `claude mcp add heweso-pricing -- python3 -m mcp_server.server`, and
+the connection failed (`✘ Failed to connect`). The reason: Claude Code starts this
+server outside the project folder, from a different Python environment — bare `python3`
+can't see the packages in the conda `base` env (`mcp`, `boto3`, `dotenv`) and can't find
+the `mcp_server` module either.
 
-Çözüm: `which python3` ile tam yolu bul (`/opt/anaconda3/bin/python3`),
-`-e PYTHONPATH=<proje kökü>` ile de "modülleri nerede arayacağını" proje
-klasörüne sabitle. `claude mcp list` çalıştırıp `heweso-pricing` yanında
-`✔ Connected` görmelisin — `✘ Failed to connect` görürsen bu adımı
-tekrarla.
+The fix: find the full path with `which python3` (e.g. `/opt/anaconda3/bin/python3`), and
+pin "where to look for modules" to the project root with `-e PYTHONPATH=<project-root>`.
+Run `claude mcp list` and you should see `✔ Connected` next to `heweso-pricing` — if you
+see `✘ Failed to connect`, repeat this step.
 
-Bu komut **hiçbir AI modeli çağırmaz** — sadece "bu MCP sunucusunu tanı"
-diye bir ayar kaydı yazar (git remote add gibi düşün). Sıfır maliyet.
+This command **calls no AI model** — it just writes a config entry that says "know about
+this MCP server" (think `git remote add`). Zero cost.
 
-Sonra herhangi bir Claude Code sohbetinde:
-> "heweso-pricing MCP sunucusundaki check_sales_trend aracını PROD-001
-> için çağır"
+Then, in any Claude Code chat:
+> "Call the check_sales_trend tool from the heweso-pricing MCP server for PROD-001"
 
-Claude bunu gerçekten çağırır, DynamoDB'den veri çeker, sonucu gösterir —
-Bedrock'a hiç dokunmadan. **Test edildi, çalışıyor** — `check_sales_trend`
-aracı çağrıldı, `NO_DATA` sonucu döndü (simülasyon kapalıyken doğru sonuç).
+Claude actually calls it, pulls data from DynamoDB, and shows the result — without
+touching Bedrock at all. **Tested and working** — `check_sales_trend` was called and
+returned `NO_DATA` (the correct result while the simulation was off).
 
-**Maliyet notu:** Araç çağrısının kendisi (DynamoDB okuma) neredeyse
-bedava. Sohbetin kendisi senin zaten kullandığın Claude Code planının
-parçası. `run_analytics` aracı Athena'ya sorgu gönderir — taranan veri
-kadar ücretlendirilir (Athena Console'dan elle sorgu çalıştırmakla aynı
-seviyede, kuruşlar).
+**Cost note:** the tool call itself (a DynamoDB read) is essentially free. The chat
+itself is part of your existing Claude Code plan. The `run_analytics` tool sends a query
+to Athena — billed by data scanned (the same order of magnitude as running a query by
+hand in the Athena console: cents).
 
-### Claude Desktop'a bağlama
+### Connecting to Claude Desktop
 
-`~/Library/Application Support/Claude/claude_desktop_config.json` dosyasına:
+In `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "heweso-pricing": {
-      "command": "python3",
+      "command": "/opt/anaconda3/bin/python3",
       "args": ["-m", "mcp_server.server"],
-      "cwd": "/Users/metehankilicli/Desktop/DE-Projects/Competitive-Pricing-Agent"
+      "cwd": "<project-root>",
+      "env": { "PYTHONPATH": "<project-root>" }
     }
   }
 }
 ```
+(The same absolute-Python + PYTHONPATH gotcha applies as for Claude Code.)
 
-### MCP Inspector (görsel debug arayüzü)
+### MCP Inspector (a visual debug UI)
 
 ```bash
 npx @modelcontextprotocol/inspector python3 -m mcp_server.server
 ```
-Tarayıcıda bir arayüz açılır, her aracı tek tek, parametrelerini elle
-girerek deneyebilirsin — Postman'in MCP versiyonu gibi düşün.
+A UI opens in the browser where you can try each tool one at a time, entering its
+parameters by hand — think of it as Postman for MCP.
 
 ---
 
-## Şu an otomatik mi çalışıyor?
+## Is it automated yet?
 
-Hayır — dbt gibi bu da **yerel, manuel bir yetenek**. AWS'ye deploy
-edilmedi, EventBridge kuralı yok. Ana pricing agent'ın 7/24 otonom
-çalışmasını hiç etkilemiyor; tamamen ayrı, isteğe bağlı bir erişim yolu.
+No — like dbt, this is a **local, on-demand capability**. It isn't deployed to AWS and
+has no EventBridge rule. It has no effect on the main pricing agent's 24/7 autonomous
+operation; it's a completely separate, optional access path.
