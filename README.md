@@ -73,10 +73,16 @@ and tooling layer built *around* it.
 <summary><b>Live on AWS</b> — console screenshots (click to expand)</summary>
 <br>
 <p align="center">
-  <img src="assets/lambda.png"        alt="Lambda function"     width="49%">
-  <img src="assets/eventbridge.png"   alt="EventBridge schedule" width="49%">
-  <img src="assets/dynamodb.png"      alt="DynamoDB tables"      width="49%">
-  <img src="assets/dashboard-dark.png" alt="Dashboard dark mode" width="49%">
+  <img src="assets/lambda.png" alt="Lambda function heweso-pricing-agent" width="100%"><br>
+  <em>Lambda <code>heweso-pricing-agent</code> — the deployed ReAct agent (EventBridge trigger, handler code).</em>
+</p>
+<p align="center">
+  <img src="assets/eventbridge.png" alt="EventBridge rule, disabled by default" width="100%"><br>
+  <em>The every-minute EventBridge trigger — kept <b>Disabled</b> by default (the cost guard from the war story above).</em>
+</p>
+<p align="center">
+  <img src="assets/dynamodb.png" alt="The four DynamoDB tables" width="100%"><br>
+  <em>The 4 DynamoDB source tables — products, sales, competitor-prices, audit-log.</em>
 </p>
 </details>
 
@@ -100,37 +106,48 @@ and tooling layer built *around* it.
 
 ## Key engineering decisions
 
-**Math lives in code, not in the model.** Nova Lite makes arithmetic mistakes on simple
-comparisons. Every price calculation is done in Python (`decide_price`); the model only calls
-the tool and follows the result.
+### Math lives in code, not in the model — the AI orchestrates, the code computes
+Nova Lite makes arithmetic mistakes on simple comparisons, so it is never trusted to *do*
+anything exact. Every price calculation runs in Python (`decide_price`); the model's job is to
+decide *which* tool to call and in what order, then follow the result. This is the core split:
+the LLM handles judgment and orchestration, deterministic code handles anything that must be correct.
 
-**Guardrails, not just prompts.** With an unreliable model, "the prompt says so" is never enough
-for anything touching money, data, or outbound communication. Critical rules are enforced in code:
-a price guard forces `update_price` to use the value `decide_price` returned; a bundle guard
-injects the chosen discount even if the model forgets it; `send_email` always sends to the
-verified address (the recipient can't be chosen by any caller); `run_analytics` accepts read-only
-`SELECT`/`WITH` only; `update_price` clamps to the `[min_price, base_price]` band.
+### One agent + 14 tools, not a multi-agent swarm
+Pricing one product is a single coherent loop — sense → reason → act → evaluate — so it runs as
+**one ReAct agent with 14 tools**, not an orchestrator delegating to specialist sub-agents.
+Multi-agent designs carry real cost: extra LLM round-trips, inter-agent coordination, more failure
+modes, and a harder-to-follow decision trace. None of that is justified at this scale, and a single
+agent keeps the reasoning linear and auditable. Knowing when *not* to reach for multi-agent is part
+of the design — the tools give specialization without the coordination tax.
 
-**Event-date vs snapshot-date partitioning.** Bronze is a full DynamoDB scan, so each day's
-partition contains *all history up to that day*. Aggregating Gold by the partition date was
-cumulative and double-counted across days. Gold now groups by each row's **real event date**
-(`sale_date` / `action_date`, already derived in Silver) and partitions by it — so each day's
-Gold row is genuinely that day's activity, and the weekly report can read Gold directly.
+### Guardrails, not just prompts
+With an unreliable model, "the prompt says so" is never enough for anything touching money, data, or
+outbound comms. Critical rules are enforced in code: a price guard forces `update_price` to use
+`decide_price`'s value; a bundle guard injects the chosen discount even if the model forgets it;
+`send_email` always sends to the verified address (no caller can choose the recipient);
+`run_analytics` accepts read-only `SELECT`/`WITH` only; `update_price` clamps to `[min_price, base_price]`.
 
-**Structured fields over text parsing.** The bundle discount rate used to be recovered from a
-free-text `reason` string with a regex. It's now written at the source as a typed
-`bundle_discount_pct` audit field (injected by the bundle guard, not trusted to the model) and
-flows Bronze → Silver → Glue, so the learner reads a real column instead of parsing prose.
+### Event-date vs snapshot-date partitioning
+Bronze is a full DynamoDB scan, so each day's partition holds *all history up to that day*, and
+aggregating Gold by the partition date double-counted across days. Gold now groups and partitions by
+each row's **real event date** (`sale_date`/`action_date`, derived in Silver) — so each Gold row is
+genuinely that day's activity, and the weekly report can read Gold directly.
 
-**dbt tests: singular over `dbt_utils`, deliberately.** Composite `(date, product_id)` uniqueness
-needs a multi-column test. Rather than add the `dbt_utils` dependency, this project uses
-hand-written **singular tests** — zero dependency, works on any dbt version. That's a scale
-judgment (YAGNI at 3 Gold tables); at ~15–20+ tables I'd switch to
-`dbt_utils.unique_combination_of_columns` for the DRY win. Knowing *when* to use each is the point.
+### Structured fields over text parsing
+The bundle discount rate used to be regex'd out of a free-text `reason` string. It's now a typed
+`bundle_discount_pct` audit field written at the source (injected by the bundle guard, not trusted to
+the model), flowing Bronze → Silver → Glue — so the learner reads a real column instead of parsing prose.
 
-**Data-driven, not rule-based.** `get_time_context` used to return labels like `PEAK`/`HOLD`
-(hard rules). It now returns a raw `traffic_ratio` number and lets the model reason. That shift —
-from fixed rules to signals the model weighs — is the essence of an agentic system.
+### dbt tests: singular over `dbt_utils`, deliberately
+Composite `(date, product_id)` uniqueness needs a multi-column test. Rather than add the `dbt_utils`
+dependency, the project uses hand-written **singular tests** — zero dependency, any dbt version.
+That's a scale judgment (YAGNI at 3 Gold tables); at ~15–20+ tables I'd switch to
+`dbt_utils.unique_combination_of_columns`. Knowing *when* to use each is the point.
+
+### Data-driven, not rule-based
+`get_time_context` used to return labels like `PEAK`/`HOLD` (hard rules). It now returns a raw
+`traffic_ratio` and lets the model reason. That shift — from fixed rules to signals the model weighs
+— is the essence of an agentic system.
 
 ---
 
@@ -138,22 +155,24 @@ from fixed rules to signals the model weighs — is the essence of an agentic sy
 
 Two incidents taught me more than the happy path did.
 
-**A schedule left "just enabled" quietly burned ~$19 in 26 hours.** An EventBridge rule firing every
-minute kept triggering the full Bedrock agent for all four products even when there were no sales to
-react to — and three analytics tools queried Athena with *no partition filter*, so each call
-enumerated a 182-day partition-projection range: ~1.3M redundant S3 `LIST` requests in total. I
-traced it in Cost Explorer (token + request breakdown), then fixed it on two levels — an
-**operational** guard (the minute-rule stays disabled by default, documented so it's never left on)
-and a **code** fix (every Athena query is now partition-scoped, `WHERE date = today`).
+### A schedule left "just enabled" quietly burned ~$19 in 26 hours
+An EventBridge rule firing every minute kept triggering the full Bedrock agent for all four products
+even when there were no sales to react to — and three analytics tools queried Athena with *no
+partition filter*, so each call enumerated a 182-day partition-projection range: ~1.3M redundant S3
+`LIST` requests in total. I traced it in Cost Explorer (token + request breakdown), then fixed it on
+two levels — an **operational** guard (the minute-rule stays disabled by default, documented so it's
+never left on) and a **code** fix (every Athena query is now partition-scoped, `WHERE date = today`).
+
 *Lesson: in serverless, an idle trigger is a silent money leak, and every warehouse query must be partition-scoped.*
 
-**`update_item` is an upsert — a stale test fixture silently corrupted the data.** A demo helper set
-`undercut_since` on a competitor named "Trendyol" that no longer existed after the catalog changed
-(competitors are now Amazon / Best Buy / MediaMarkt). Because DynamoDB's `update_item` *creates* a
-row when the key is absent, it wrote a **phantom competitor row with no `price` field** — and the
-read tools crashed with `KeyError('price')`. I fixed the **root cause** (point the fixture at a real
-competitor) and hardened the **class of failure** (the read tools now skip rows with no usable
-price, so one malformed record can't take down the whole competitor check).
+### `update_item` is an upsert — a stale test fixture silently corrupted the data
+A demo helper set `undercut_since` on a competitor named "Trendyol" that no longer existed after the
+catalog changed (competitors are now Amazon / Best Buy / MediaMarkt). Because DynamoDB's
+`update_item` *creates* a row when the key is absent, it wrote a **phantom competitor row with no
+`price` field** — and the read tools crashed with `KeyError('price')`. I fixed the **root cause**
+(point the fixture at a real competitor) and hardened the **class of failure** (the read tools now
+skip rows with no usable price, so one malformed record can't take down the whole competitor check).
+
 *Lesson: NoSQL "update-that-inserts" plus a stale fixture is a subtle corruption vector — always parse stored/external data defensively.*
 
 ---
@@ -200,18 +219,26 @@ an industry-standard tool and never collides with the live tables.
 
 ## Reporting & interfaces
 
-**Weekly analytics report** (`lambda/analytics_handler.py`) reads the Gold layer, computes every
-number in SQL/Python, and a single Bedrock call writes the plain-English narrative — it *narrates*,
-it never calculates, so it can't invent a figure. SES delivers it as HTML.
+### Weekly analytics report — a mini analytics pipeline, with an AI analyst on top
+`lambda/analytics_handler.py` is a small pipeline in its own right: SQL/Python aggregates every
+metric off the **Gold** layer — total sales, revenue, price actions, and bundle effectiveness per
+product — and hands those finished numbers to a **single Bedrock call** that writes the plain-English
+**Insight** paragraph (the yellow box below). That call *narrates, it never calculates*: it only ever
+sees the computed stats, never raw rows, so it physically cannot invent or misstate a figure. It's the
+same "math out of the model" discipline as the pricing path, applied to reporting — the numbers are
+deterministic; the AI adds the *analysis* ("Samsung dominated; no escalations may have kept sales
+steady; the cheaper audio products underperformed — consider promotions"). SES delivers it as HTML.
 
 <p align="center">
-  <img src="assets/weekly-report.png" alt="Weekly analytics email report" width="70%"><br>
-  <em>The auto-generated weekly report — the "Insight" paragraph is AI-written; every number is computed in code.</em>
+  <img src="assets/weekly-report.png" alt="Weekly analytics email report with an AI-written Insight" width="70%"><br>
+  <em>The auto-generated weekly report. Every number is computed in SQL/Python; the yellow <b>Insight</b>
+  paragraph is the AI analyst narrating those finished stats — it never recomputes them.</em>
 </p>
 
-**MCP server** (`mcp_server/server.py`) exposes all 14 tools over the Model Context Protocol, so any
-MCP client (Claude Desktop, Claude Code) can drive the pricing tools in natural language — a parallel
-access layer that reuses the exact same tool code as the Bedrock agent.
+### MCP server — the same 14 tools, in any AI client
+`mcp_server/server.py` exposes all 14 tools over the Model Context Protocol, so any MCP client
+(Claude Desktop, Claude Code) can drive the pricing tools in natural language — a parallel access
+layer that reuses the exact same tool code as the Bedrock agent, without touching it.
 
 <p align="center">
   <img src="assets/mcp-claude.png" alt="The 14 tools called via MCP from Claude" width="100%"><br>
@@ -243,7 +270,11 @@ Honesty about a system's weak points is part of understanding it.
 
 ```
 ├── agent/            system_prompt.py · bedrock_agent.py (ReAct loop + guards) · report_agent.py
-├── tools/            the 14 tools, each independently testable
+├── tools/            the 14 tools (flat, each independently testable), grouped by role:
+│      SENSE     check_sales_trend · query_sales · check_competitors · check_competitor_pattern · get_time_context
+│      DECIDE    decide_price · analyze_price_elasticity · check_outcome · check_bundle_trigger
+│      ACT       update_price · log_action · send_email · escalate
+│      ANALYZE   run_analytics
 ├── infrastructure/   dynamodb_setup.py · export_to_s3.py · medallion/{silver,gold,setup_glue_tables}.py
 ├── dbt_heweso/       dbt project (models/silver, models/gold, tests/) — SQL Medallion + tests
 ├── lambda/           handler.py (agent + hourly pipeline) · analytics_handler.py (weekly report)
