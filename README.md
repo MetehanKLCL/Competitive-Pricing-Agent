@@ -1,5 +1,11 @@
 # Heweso — Autonomous Competitive Pricing Agent
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-Lambda%20%C2%B7%20Bedrock%20%C2%B7%20Athena%20%C2%B7%20DynamoDB-FF9900?logo=amazonaws&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-18%20data%20tests-FF694B?logo=dbt&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-6E56CF)
+![Status](https://img.shields.io/badge/status-portfolio%20project-1f6feb)
+
 An always-on AI agent that prices e-commerce products autonomously: it **observes** sales
 and competitor data, **reasons** about what to do, **acts** (changes prices, emails, escalates),
 then **evaluates the outcome and learns** from it. Built for a fictional Turkish e-commerce
@@ -11,6 +17,13 @@ platform ("Heweso") as a portfolio piece in agentic data engineering.
 
 This is **not** a traditional ETL pipeline. A traditional pipeline moves data. This one closes
 the loop: *sense → reason → act → evaluate → learn.* That loop is what makes it "agentic."
+
+<p align="center">
+  <img src="assets/dashboard.png" alt="Heweso dashboard — the pricing agent's ReAct loop running live" width="100%">
+  <br>
+  <em>The ReAct loop running live: the agent senses the trend, checks the competitor pattern and
+  price elasticity, decides <code>NO_ACTION</code> (already competitive), logs it, and stops — autonomously.</em>
+</p>
 
 ---
 
@@ -50,11 +63,22 @@ AWS Lambda (Python 3.12)  ──►  Amazon Bedrock (Nova Lite)
 | 1 | **Live pricing agent** | Bedrock Nova Lite, ReAct loop, 14 tools | Deployed on Lambda |
 | 2 | **Medallion pipeline** | DynamoDB → S3 Bronze/Silver/Gold, hourly, inside the Lambda | Automated |
 | 3 | **dbt project** | SQL rebuild of Silver/Gold in an isolated schema, with data-quality tests | Manual (`dbt run && dbt test`) |
-| 4 | **Weekly analytics report** | Reads Gold, builds an HTML report, AI writes the narrative, SES emails it | Ready |
+| 4 | **Weekly analytics report** | Reads Gold, builds an HTML report, AI writes the narrative, SES emails it | Built · tested locally |
 | 5 | **MCP server** | Exposes all 14 tools over Model Context Protocol for any MCP client | Local dev tool |
 
 The agent's decision-making brain (subsystem 1) was built first; 2–5 are the data-engineering
 and tooling layer built *around* it.
+
+<details>
+<summary><b>Live on AWS</b> — console screenshots (click to expand)</summary>
+<br>
+<p align="center">
+  <img src="assets/lambda.png"        alt="Lambda function"     width="49%">
+  <img src="assets/eventbridge.png"   alt="EventBridge schedule" width="49%">
+  <img src="assets/dynamodb.png"      alt="DynamoDB tables"      width="49%">
+  <img src="assets/dashboard-dark.png" alt="Dashboard dark mode" width="49%">
+</p>
+</details>
 
 ---
 
@@ -137,6 +161,39 @@ automated data-quality tests: `unique`, `not_null`, `relationships`, `accepted_v
 custom singular composite-key tests). The dbt version demonstrates the same transformations with
 an industry-standard tool and never collides with the live tables.
 
+<p align="center">
+  <img src="assets/athena-gold.png" alt="Athena query on the Gold layer" width="100%"><br>
+  <em>The Gold layer queried in Athena — pre-aggregated daily metrics per product, partitioned by event date.</em>
+</p>
+
+<p align="center">
+  <img src="assets/dbt-tests.png" alt="dbt test output — 18 of 18 passing" width="75%"><br>
+  <em><code>dbt test</code> — 18/18 data-quality tests passing (<code>unique</code>, <code>not_null</code>,
+  <code>relationships</code>, <code>accepted_values</code> + custom composite-key tests).</em>
+</p>
+
+---
+
+## Reporting & interfaces
+
+**Weekly analytics report** (`lambda/analytics_handler.py`) reads the Gold layer, computes every
+number in SQL/Python, and a single Bedrock call writes the plain-English narrative — it *narrates*,
+it never calculates, so it can't invent a figure. SES delivers it as HTML.
+
+<p align="center">
+  <img src="assets/weekly-report.png" alt="Weekly analytics email report" width="70%"><br>
+  <em>The auto-generated weekly report — the "Insight" paragraph is AI-written; every number is computed in code.</em>
+</p>
+
+**MCP server** (`mcp_server/server.py`) exposes all 14 tools over the Model Context Protocol, so any
+MCP client (Claude Desktop, Claude Code) can drive the pricing tools in natural language — a parallel
+access layer that reuses the exact same tool code as the Bedrock agent.
+
+<p align="center">
+  <img src="assets/mcp-claude.png" alt="The 14 tools called via MCP from Claude" width="100%"><br>
+  <em>Claude driving the pricing tools over MCP in natural language ("check the iPhone sales trend").</em>
+</p>
+
 ---
 
 ## Known limitations & tradeoffs
@@ -167,6 +224,7 @@ Honesty about a system's weak points is part of understanding it.
 ├── lambda/           handler.py (agent + hourly pipeline) · analytics_handler.py (weekly report)
 ├── mcp_server/       server.py — 14 tools exposed over MCP
 ├── frontend/         FastAPI dashboard (SSE, live sales, agent terminal)
+├── assets/           screenshots used in this README
 ├── CONCEPTS.md       plain-language explanations of every technical concept used
 └── INTERVIEW_PREP.md project story + design tradeoffs in STAR form
 ```
