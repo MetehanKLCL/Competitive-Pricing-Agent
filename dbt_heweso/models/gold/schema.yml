@@ -2,37 +2,37 @@ version: 2
 
 models:
   - name: gold_daily_product_metrics
-    description: "Ürün başına GÜNLÜK satış + fiyat özeti (event-date bazlı). Rapor/dashboard buradan okur."
+    description: "DAILY sales + price summary per product (event-date based). The report/dashboard reads from here."
     columns:
       - name: date
-        description: "Olay tarihi (satışın/aksiyonun gerçekleştiği gün, snapshot değil)"
+        description: "Event date (the day the sale/action actually happened, not the snapshot date)"
         tests:
           - not_null
       - name: product_id
-        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_daily_metrics_unique.sql"
+        description: "Product ID — (date, product_id) is unique; see tests/assert_gold_daily_metrics_unique.sql"
         tests:
           - not_null
 
   - name: gold_agent_performance
-    description: "Agent'ın GÜNLÜK karar kalitesi — kaç indirim, bundle, escalation (event-date bazlı)."
+    description: "The agent's DAILY decision quality — how many discounts, bundles, escalations (event-date based)."
     columns:
       - name: date
-        description: "Aksiyonun gerçek olay tarihi"
+        description: "The action's real event date"
         tests:
           - not_null
       - name: product_id
-        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_agent_performance_unique.sql"
+        description: "Product ID — (date, product_id) is unique; see tests/assert_gold_agent_performance_unique.sql"
         tests:
           - not_null
 
   - name: gold_bundle_effectiveness
-    description: "Bundle indirimlerinin (epsilon-greedy) satışa etkisi (event-date bazlı)."
+    description: "The effect of bundle discounts (epsilon-greedy) on sales (event-date based)."
     columns:
       - name: date
-        description: "Bundle aksiyonunun gerçek olay tarihi"
+        description: "The bundle action's real event date"
         tests:
           - not_null
       - name: product_id
-        description: "Ürün ID — (date, product_id) benzersiz; bkz. tests/assert_gold_bundle_effectiveness_unique.sql"
+        description: "Product ID — (date, product_id) is unique; see tests/assert_gold_bundle_effectiveness_unique.sql"
         tests:
           - not_null

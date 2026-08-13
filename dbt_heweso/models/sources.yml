@@ -3,17 +3,17 @@ version: 2
 sources:
   - name: bronze
     description: >
-      Bronze katmanı — DynamoDB'den export_to_s3.py ile export edilen ham veri.
-      Bu tablolar setup_glue_tables.py ile önceden oluşturuldu, dbt bunları
-      SADECE OKUR, hiç değiştirmez veya yeniden oluşturmaz.
+      Bronze layer — raw data exported from DynamoDB by export_to_s3.py.
+      These tables were created ahead of time by setup_glue_tables.py; dbt
+      only READS them, and never alters or recreates them.
     database: awsdatacatalog
     schema: heweso_analytics
     tables:
       - name: bronze_sales
-        description: "Ham satış kayıtları, Hive partition: date=YYYY-MM-DD"
+        description: "Raw sales records, Hive partition: date=YYYY-MM-DD"
       - name: bronze_audit
-        description: "Ham audit log — agent'ın attığı her aksiyon (fiyat değişimi, escalation, vs.)"
+        description: "Raw audit log — every action the agent took (price change, escalation, etc.)"
       - name: bronze_competitors
-        description: "Ham rakip fiyat kayıtları"
+        description: "Raw competitor price records"
       - name: bronze_products
-        description: "Ham ürün bilgisi (mevcut fiyat, min/base fiyat, bundle ilişkileri)"
+        description: "Raw product info (current price, min/base price, bundle relationships)"

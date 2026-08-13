@@ -2,15 +2,15 @@ version: 2
 
 models:
   - name: silver_sales_enriched
-    description: "Satış verisi + ürün bilgisi ile zenginleştirilmiş, sadece bugünün Bronze verisi işlenir."
+    description: "Sales data enriched with product info; only today's Bronze data is processed."
     columns:
       - name: sale_id
-        description: "Her satışın benzersiz kimliği"
+        description: "Unique identifier for each sale"
         tests:
           - unique
           - not_null
       - name: product_id
-        description: "Satılan ürünün ID'si — 4 gerçek üründen biri olmalı"
+        description: "ID of the product sold — must be one of the 4 real products"
         tests:
           - not_null
           - relationships:
@@ -20,11 +20,12 @@ models:
 
   - name: silver_price_actions
     description: >
-      Audit log'dan filtrelenmiş fiyat aksiyonları. Data quality gate uygulanmış:
-      product_id gerçek bir ürüne ait değilse (UNKNOWN gibi) bu tabloya hiç girmez.
+      Price actions filtered from the audit log. A data-quality gate is applied:
+      if product_id does not belong to a real product (e.g. UNKNOWN), the row never
+      enters this table.
     columns:
       - name: product_id
-        description: "Fiyatı değişen ürün — quality gate sayesinde her zaman geçerli bir ürün"
+        description: "The repriced product — always a valid product thanks to the quality gate"
         tests:
           - not_null
           - relationships:
@@ -32,14 +33,14 @@ models:
                 to: source('bronze', 'bronze_products')
                 field: product_id
       - name: direction
-        description: "Fiyat DOWN mı UP mı SAME mi değişti"
+        description: "Whether the price moved DOWN, UP, or SAME"
         tests:
           - accepted_values:
               arguments:
                 values: ['UP', 'DOWN', 'SAME']
 
   - name: silver_competitor_gaps
-    description: "Rakip fiyatları ile bizim fiyatlarımız arasındaki fark, ürün ve rakip bazında."
+    description: "The gap between competitor prices and ours, per product and competitor."
     columns:
       - name: product_id
         tests:

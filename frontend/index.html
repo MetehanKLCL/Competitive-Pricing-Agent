@@ -691,7 +691,7 @@ async function initSalesFeed() {
   const data = await fetch(`${API}/api/sales?limit=15`).then(r=>r.json());
   const feed = document.getElementById('sales-feed');
   feed.innerHTML = '';
-  // En eskiden en yeniye sırala, her birini prepend et → en yeni solda
+  // Order oldest to newest and prepend each → newest ends up on the left
   [...data].reverse().forEach(s => addSaleToFeed(s, true, false));
   _salesLoaded = true;
   const evtSource = new EventSource(`${API}/api/sales/stream`);
@@ -961,7 +961,7 @@ const CRISIS_COOLDOWN   = 90_000;
 const RECOVERY_COOLDOWN = 120_000;
 const BUNDLE_COOLDOWN   = 120_000;
 
-// Telefon → aksesuar ilişkisi
+// Phone → accessory relationship
 const PHONE_TO_ACCESSORY = { 'PROD-001': 'PROD-002', 'PROD-003': 'PROD-004' };
 const _lastBundleRun = {};
 
@@ -997,7 +997,7 @@ async function _autoWatchTick() {
         return;
       }
 
-      // Bundle check: telefon SURGE'de mi? Öyleyse aksesuar agentını tetikle
+      // Bundle check: is the phone in SURGE? If so, trigger the accessory agent
       for (const phonePid of Object.keys(PHONE_TO_ACCESSORY)) {
         const cooldownKey = phonePid;
         if (now - (_lastBundleRun[cooldownKey] || 0) < BUNDLE_COOLDOWN) continue;
