@@ -47,3 +47,6 @@ ARCHITECTURE_ANALOGY.md
 
 # Turkish-language copies of subsystem docs (English README.md is the public one)
 *.tr.md
+
+# Dead dark-theme backup (kept local, not for public repo)
+frontend/index_old.html
