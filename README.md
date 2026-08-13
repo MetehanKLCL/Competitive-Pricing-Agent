@@ -191,7 +191,8 @@ access layer that reuses the exact same tool code as the Bedrock agent.
 
 <p align="center">
   <img src="assets/mcp-claude.png" alt="The 14 tools called via MCP from Claude" width="100%"><br>
-  <em>Claude driving the pricing tools over MCP in natural language ("check the iPhone sales trend").</em>
+  <em>Claude driving the pricing tools over MCP in natural language — it chains the sales-trend,
+  competitor, and flash-vs-structural checks, then reasons to a hold-vs-drop recommendation.</em>
 </p>
 
 ---
