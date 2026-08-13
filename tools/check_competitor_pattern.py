@@ -61,6 +61,18 @@ def check_competitor_pattern(product_id: str) -> dict:
         .query(KeyConditionExpression=Key("product_id").eq(product_id)) \
         .get("Items", [])
 
+    # Drop malformed rows with no usable price before any price math. A partial
+    # record (e.g. a stale helper upserting a competitor by key without a price)
+    # must not crash the whole pattern check.
+    def _has_price(c: dict) -> bool:
+        try:
+            float(c["price"])
+            return True
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    comps = [c for c in comps if _has_price(c)]
+
     if not comps:
         return {
             "pattern": "NOT_UNDERCUT", "cheapest_competitor": None,

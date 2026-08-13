@@ -25,10 +25,14 @@ PRODUCTS_TABLE    = os.getenv("DYNAMODB_PRODUCTS_TABLE", "heweso-products")
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 UNDERCUT_PAIRS = [
-    # Competitors priced below us (seed data default)
-    ("PROD-001", "Trendyol"),
-    ("PROD-002", "Trendyol"),
-    ("PROD-003", "Trendyol"),
+    # Competitors priced below us in the seed data (Amazon is the cheapest per
+    # product). These MUST match a competitor that actually exists in
+    # seed_competitors(), because DynamoDB update_item is an upsert: keying on a
+    # non-existent competitor (e.g. a stale "Trendyol") would silently create a
+    # phantom row with no `price` field and break check_competitors.
+    ("PROD-001", "Amazon"),
+    ("PROD-002", "Amazon"),
+    ("PROD-003", "Amazon"),
 ]
 
 
