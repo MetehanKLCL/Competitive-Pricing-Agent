@@ -25,6 +25,16 @@ the loop: *sense → reason → act → evaluate → learn.* That loop is what m
   price elasticity, decides <code>NO_ACTION</code> (already competitive), logs it, and stops — autonomously.</em>
 </p>
 
+<p align="center">
+  <a href="#architecture">Architecture</a> ·
+  <a href="#key-engineering-decisions">Key decisions</a> ·
+  <a href="#lessons-learned-war-stories">Lessons learned</a> ·
+  <a href="#the-learning-layer">Learning layer</a> ·
+  <a href="#data-layer-medallion--dbt">Data layer</a> ·
+  <a href="#reporting--interfaces">Reporting</a> ·
+  <a href="#roadmap--future-improvements">Roadmap</a>
+</p>
+
 ---
 
 ## Architecture
