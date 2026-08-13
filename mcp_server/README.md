@@ -1,8 +1,7 @@
 # mcp_server — Ne, Neden, Nasıl
 
 Bu dosya MCP entegrasyonunun neden var olduğunu, ne eklediğimizi ve nasıl
-test edileceğini anlatır. Kavramsal açıklama için `../CONCEPTS.md`
-dosyasındaki "MCP (Model Context Protocol)" bölümüne de bak.
+test edileceğini anlatır.
 
 ---
 

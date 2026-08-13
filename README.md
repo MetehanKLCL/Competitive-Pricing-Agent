@@ -134,6 +134,30 @@ from fixed rules to signals the model weighs — is the essence of an agentic sy
 
 ---
 
+## Lessons learned (war stories)
+
+Two incidents taught me more than the happy path did.
+
+**A schedule left "just enabled" quietly burned ~$19 in 26 hours.** An EventBridge rule firing every
+minute kept triggering the full Bedrock agent for all four products even when there were no sales to
+react to — and three analytics tools queried Athena with *no partition filter*, so each call
+enumerated a 182-day partition-projection range: ~1.3M redundant S3 `LIST` requests in total. I
+traced it in Cost Explorer (token + request breakdown), then fixed it on two levels — an
+**operational** guard (the minute-rule stays disabled by default, documented so it's never left on)
+and a **code** fix (every Athena query is now partition-scoped, `WHERE date = today`).
+*Lesson: in serverless, an idle trigger is a silent money leak, and every warehouse query must be partition-scoped.*
+
+**`update_item` is an upsert — a stale test fixture silently corrupted the data.** A demo helper set
+`undercut_since` on a competitor named "Trendyol" that no longer existed after the catalog changed
+(competitors are now Amazon / Best Buy / MediaMarkt). Because DynamoDB's `update_item` *creates* a
+row when the key is absent, it wrote a **phantom competitor row with no `price` field** — and the
+read tools crashed with `KeyError('price')`. I fixed the **root cause** (point the fixture at a real
+competitor) and hardened the **class of failure** (the read tools now skip rows with no usable
+price, so one malformed record can't take down the whole competitor check).
+*Lesson: NoSQL "update-that-inserts" plus a stale fixture is a subtle corruption vector — always parse stored/external data defensively.*
+
+---
+
 ## The learning layer
 
 - **Price elasticity** (`analyze_price_elasticity`): for each past discount, sums the **revenue**
@@ -225,9 +249,7 @@ Honesty about a system's weak points is part of understanding it.
 ├── lambda/           handler.py (agent + hourly pipeline) · analytics_handler.py (weekly report)
 ├── mcp_server/       server.py — 14 tools exposed over MCP
 ├── frontend/         FastAPI dashboard (SSE, live sales, agent terminal)
-├── assets/           screenshots used in this README
-├── CONCEPTS.md       plain-language explanations of every technical concept used
-└── INTERVIEW_PREP.md project story + design tradeoffs in STAR form
+└── assets/           screenshots used in this README
 ```
 
 ---

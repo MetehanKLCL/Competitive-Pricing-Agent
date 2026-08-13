@@ -1,9 +1,7 @@
 # dbt_heweso — Ne, Neden, Nasıl
 
 Bu dosya dbt projesinin neden var olduğunu, hangi dosyanın ne işe yaradığını
-ve komutları çalıştırınca arka planda ne olduğunu anlatır. Kavramsal
-açıklamalar için `../CONCEPTS.md` dosyasına da bak (Hive Partitioning,
-Data Quality Gate, dbt kavramı orada da var).
+ve komutları çalıştırınca arka planda ne olduğunu anlatır.
 
 ---
 

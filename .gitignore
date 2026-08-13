@@ -39,3 +39,8 @@ Thumbs.db
 # Private dev notes & local machine settings (never in public repo)
 CLAUDE.md
 .claude/settings.local.json
+
+# Personal Turkish study/handoff notes (kept local, not for public repo)
+CONCEPTS.md
+INTERVIEW_PREP.md
+ARCHITECTURE_ANALOGY.md
